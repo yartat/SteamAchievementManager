@@ -96,9 +96,21 @@ namespace SAM.Picker
             this.DownloadNextLogo();
         }
 
+        private void ChangePickerLabelText(string text)
+        {
+            if (!InvokeRequired)
+            {
+                _PickerStatusLabel.Text = text;
+            }
+            else
+            {
+                Invoke((string textToDraw) => _PickerStatusLabel.Text = textToDraw, text);
+            }
+        }
+
         private void DoDownloadList(object sender, DoWorkEventArgs e)
         {
-            this._PickerStatusLabel.Text = "Downloading game list...";
+            ChangePickerLabelText("Downloading game list...");
 
             byte[] bytes;
             using (WebClient downloader = new())
@@ -452,7 +464,9 @@ namespace SAM.Picker
 
             try
             {
-                Process.Start("SAM.Game.exe", info.Id.ToString(CultureInfo.InvariantCulture));
+                Process.Start(
+                    Path.Combine(AppContext.BaseDirectory, "SAM.Game.exe"),
+                    info.Id.ToString(CultureInfo.InvariantCulture));
             }
             catch (Win32Exception)
             {

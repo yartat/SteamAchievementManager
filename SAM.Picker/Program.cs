@@ -21,16 +21,30 @@
  */
 
 using System;
+using System.IO;
 using System.Windows.Forms;
 
 namespace SAM.Picker
 {
     internal static class Program
     {
+        private static bool IsRunningFromSteamDirectory()
+        {
+            var installPath = API.Steam.GetInstallPath();
+            if (string.IsNullOrEmpty(installPath) == true)
+            {
+                return false;
+            }
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(installPath)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(AppContext.BaseDirectory)),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         [STAThread]
         private static void Main()
         {
-            if (API.Steam.GetInstallPath() == Application.StartupPath)
+            if (IsRunningFromSteamDirectory() == true)
             {
                 MessageBox.Show(
                     "This tool declines to being run from the Steam directory.",

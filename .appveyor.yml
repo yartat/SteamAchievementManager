@@ -9,20 +9,27 @@ skip_commits:
   files:
     - .github/*
     - README.md
+    - CLAUDE.md
 
 max_jobs: 1
 
-image: Visual Studio 2019
+image: Visual Studio 2022
 
 clone_folder: c:\projects\SAM
 
 cache:
-  - packages -> **\packages.config
   - '%LocalAppData%\NuGet\Cache'
   - '%LocalAppData%\NuGet\v3-cache'
 
+# The VS2022 image does not ship the .NET 10 SDK yet; install the version
+# pinned by global.json before restoring.
 install:
-  - git submodule update --init --recursive
+  - ps: |
+      $global = Get-Content global.json | ConvertFrom-Json
+      $version = $global.sdk.version
+      Invoke-WebRequest 'https://dot.net/v1/dotnet-install.ps1' -OutFile dotnet-install.ps1
+      ./dotnet-install.ps1 -Version $version -InstallDir "$env:ProgramFiles\dotnet"
+      dotnet --info
 
 configuration:
   - Release
@@ -35,18 +42,17 @@ dotnet_csproj:
   file_version: '{version}'
   informational_version: '{version}'
 
-build:
-  project: SAM.sln
-  parallel: true
-  verbosity: minimal
+build_script:
+  - dotnet build SAM.sln -c Release -v minimal
 
-before_build:
-  - nuget restore
-  
+# Framework-dependent output: the .exe will not start without the matching
+# .NET Desktop Runtime, so the runtimeconfig.json and deps.json files must be
+# shipped alongside it. To produce a build that runs without a preinstalled
+# runtime, see the self-contained publish command in README.md.
 after_build:
   - set TZ=GMT
   - git log . > git-log.txt
-  - 7z a -r -tzip -mx=9 -x!*/LICENSE.txt SteamAchievementManager-%APPVEYOR_BUILD_VERSION%.zip ./LICENSE.txt ./git-log.txt ./upload/*.exe ./upload/*.dll
+  - 7z a -r -tzip -mx=9 -x!*/LICENSE.txt SteamAchievementManager-%APPVEYOR_BUILD_VERSION%.zip ./LICENSE.txt ./git-log.txt ./bin/*.exe ./bin/*.dll ./bin/*.runtimeconfig.json ./bin/*.deps.json
 
 artifacts:
   - path: '*-*.zip'

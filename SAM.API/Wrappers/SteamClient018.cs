@@ -123,87 +123,84 @@ namespace SAM.API.Wrappers
         #endregion
 
         #region GetISteamUserStats
+
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
-        private delegate IntPtr NativeGetISteamUserStats(IntPtr self, int user, int pipe, IntPtr version);
+        private delegate IntPtr NativeGetISteamUserStats(IntPtr self, int user, int pipe, [MarshalAs(UnmanagedType.LPUTF8Str)] string version);
 
         private TClass GetISteamUserStats<TClass>(int user, int pipe, string version)
             where TClass : INativeWrapper, new()
         {
-            using (var nativeVersion = NativeStrings.StringToStringHandle(version))
-            {
-                IntPtr address = this.Call<IntPtr, NativeGetISteamUserStats>(
-                    this.Functions.GetISteamUserStats,
-                    this.ObjectAddress,
-                    user,
-                    pipe,
-                    nativeVersion.Handle);
-                TClass result = new();
-                result.SetupFunctions(address);
-                return result;
-            }
+            var address = Call<IntPtr, NativeGetISteamUserStats>(
+                Functions.GetISteamUserStats,
+                ObjectAddress,
+                user,
+                pipe,
+                version);
+            var result = new TClass();
+            result.SetupFunctions(address);
+            return result;
         }
+
         #endregion
 
         #region GetSteamUserStats013
-        public SteamUserStats013 GetSteamUserStats013(int user, int pipe)
-        {
-            return this.GetISteamUserStats<SteamUserStats013>(user, pipe, "STEAMUSERSTATS_INTERFACE_VERSION013");
-        }
+
+        public SteamUserStats013 GetSteamUserStats013(int user, int pipe) =>
+            GetISteamUserStats<SteamUserStats013>(user, pipe, "STEAMUSERSTATS_INTERFACE_VERSION013");
+
         #endregion
 
         #region GetISteamUtils
+
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
-        private delegate IntPtr NativeGetISteamUtils(IntPtr self, int pipe, IntPtr version);
+        private delegate IntPtr NativeGetISteamUtils(IntPtr self, int pipe, [MarshalAs(UnmanagedType.LPUTF8Str)] string version);
 
         public TClass GetISteamUtils<TClass>(int pipe, string version)
             where TClass : INativeWrapper, new()
         {
-            using (var nativeVersion = NativeStrings.StringToStringHandle(version))
-            {
-                IntPtr address = this.Call<IntPtr, NativeGetISteamUtils>(
-                    this.Functions.GetISteamUtils,
-                    this.ObjectAddress,
-                    pipe,
-                    nativeVersion.Handle);
-                TClass result = new();
-                result.SetupFunctions(address);
-                return result;
-            }
+            var address = this.Call<IntPtr, NativeGetISteamUtils>(
+                Functions.GetISteamUtils,
+                ObjectAddress,
+                pipe,
+                version);
+            var result = new TClass();
+            result.SetupFunctions(address);
+            return result;
         }
+
         #endregion
 
         #region GetSteamUtils004
-        public SteamUtils005 GetSteamUtils004(int pipe)
-        {
-            return this.GetISteamUtils<SteamUtils005>(pipe, "SteamUtils005");
-        }
+
+        public SteamUtils005 GetSteamUtils004(int pipe) =>
+             GetISteamUtils<SteamUtils005>(pipe, "SteamUtils004");
+
         #endregion
 
         #region GetISteamApps
-        private delegate IntPtr NativeGetISteamApps(int user, int pipe, IntPtr version);
+
+        private delegate IntPtr NativeGetISteamApps(int user, int pipe, [MarshalAs(UnmanagedType.LPUTF8Str)] string version);
 
         private TClass GetISteamApps<TClass>(int user, int pipe, string version)
             where TClass : INativeWrapper, new()
         {
-            using (var nativeVersion = NativeStrings.StringToStringHandle(version))
-            {
-                IntPtr address = this.Call<IntPtr, NativeGetISteamApps>(
-                    this.Functions.GetISteamApps,
-                    user,
-                    pipe,
-                    nativeVersion.Handle);
-                TClass result = new();
-                result.SetupFunctions(address);
-                return result;
-            }
+            var address = Call<IntPtr, NativeGetISteamApps>(
+                Functions.GetISteamApps,
+                user,
+                pipe,
+                version);
+            var result = new TClass();
+            result.SetupFunctions(address);
+            return result;
         }
+
         #endregion
 
         #region GetSteamApps001
-        public SteamApps001 GetSteamApps001(int user, int pipe)
-        {
-            return this.GetISteamApps<SteamApps001>(user, pipe, "STEAMAPPS_INTERFACE_VERSION001");
-        }
+
+        public SteamApps001 GetSteamApps001(int user, int pipe) =>
+            GetISteamApps<SteamApps001>(user, pipe, "STEAMAPPS_INTERFACE_VERSION001");
+
         #endregion
 
         #region GetSteamApps008

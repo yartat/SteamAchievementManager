@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 16
-VisualStudioVersion = 16.0.28803.156
+# Visual Studio Version 18
+VisualStudioVersion = 18.6.11822.322 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SAM.Picker", "SAM.Picker\SAM.Picker.csproj", "{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}"
 EndProject
@@ -11,20 +11,34 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SAM.Game", "SAM.Game\SAM.Ga
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|AnyCPU = Debug|AnyCPU
 		Debug|x86 = Debug|x86
+		Release|AnyCPU = Release|AnyCPU
 		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}.Debug|AnyCPU.ActiveCfg = Debug|AnyCPU
+		{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}.Debug|AnyCPU.Build.0 = Debug|AnyCPU
 		{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}.Debug|x86.ActiveCfg = Debug|x86
 		{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}.Debug|x86.Build.0 = Debug|x86
+		{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}.Release|AnyCPU.ActiveCfg = Release|AnyCPU
+		{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}.Release|AnyCPU.Build.0 = Release|AnyCPU
 		{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}.Release|x86.ActiveCfg = Release|x86
 		{E89E57BB-0F09-47F3-98A0-2026E2E65FBA}.Release|x86.Build.0 = Release|x86
+		{DF9102D5-048A-4D21-8CE3-3544CBDF0ED1}.Debug|AnyCPU.ActiveCfg = Debug|AnyCPU
+		{DF9102D5-048A-4D21-8CE3-3544CBDF0ED1}.Debug|AnyCPU.Build.0 = Debug|AnyCPU
 		{DF9102D5-048A-4D21-8CE3-3544CBDF0ED1}.Debug|x86.ActiveCfg = Debug|x86
 		{DF9102D5-048A-4D21-8CE3-3544CBDF0ED1}.Debug|x86.Build.0 = Debug|x86
+		{DF9102D5-048A-4D21-8CE3-3544CBDF0ED1}.Release|AnyCPU.ActiveCfg = Release|AnyCPU
+		{DF9102D5-048A-4D21-8CE3-3544CBDF0ED1}.Release|AnyCPU.Build.0 = Release|AnyCPU
 		{DF9102D5-048A-4D21-8CE3-3544CBDF0ED1}.Release|x86.ActiveCfg = Release|x86
 		{DF9102D5-048A-4D21-8CE3-3544CBDF0ED1}.Release|x86.Build.0 = Release|x86
+		{7640DE31-E54E-45F9-9CF0-8DF3A3EA30FC}.Debug|AnyCPU.ActiveCfg = Debug|AnyCPU
+		{7640DE31-E54E-45F9-9CF0-8DF3A3EA30FC}.Debug|AnyCPU.Build.0 = Debug|AnyCPU
 		{7640DE31-E54E-45F9-9CF0-8DF3A3EA30FC}.Debug|x86.ActiveCfg = Debug|x86
 		{7640DE31-E54E-45F9-9CF0-8DF3A3EA30FC}.Debug|x86.Build.0 = Debug|x86
+		{7640DE31-E54E-45F9-9CF0-8DF3A3EA30FC}.Release|AnyCPU.ActiveCfg = Release|AnyCPU
+		{7640DE31-E54E-45F9-9CF0-8DF3A3EA30FC}.Release|AnyCPU.Build.0 = Release|AnyCPU
 		{7640DE31-E54E-45F9-9CF0-8DF3A3EA30FC}.Release|x86.ActiveCfg = Release|x86
 		{7640DE31-E54E-45F9-9CF0-8DF3A3EA30FC}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection

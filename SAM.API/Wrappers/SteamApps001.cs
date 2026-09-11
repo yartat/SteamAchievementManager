@@ -29,32 +29,31 @@ namespace SAM.API.Wrappers
     public class SteamApps001 : NativeWrapper<ISteamApps001>
     {
         #region GetAppData
+
         [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
         private delegate int NativeGetAppData(
-            IntPtr self,
-            uint appId,
-            IntPtr key,
+            [In] IntPtr self,
+            [In] uint appId,
+            [In, MarshalAs(UnmanagedType.LPUTF8Str)] string key,
             IntPtr value,
-            int valueLength);
+            [In] int valueLength);
 
         public string GetAppData(uint appId, string key)
         {
-            using (var nativeHandle = NativeStrings.StringToStringHandle(key))
-            {
-                const int valueLength = 1024;
-                var valuePointer = Marshal.AllocHGlobal(valueLength);
-                int result = this.Call<int, NativeGetAppData>(
-                    this.Functions.GetAppData,
-                    this.ObjectAddress,
-                    appId,
-                    nativeHandle.Handle,
-                    valuePointer,
-                    valueLength);
-                var value = result == 0 ? null : NativeStrings.PointerToString(valuePointer, valueLength);
-                Marshal.FreeHGlobal(valuePointer);
-                return value;
-            }
+            const int valueLength = 1024;
+            var valuePointer = Marshal.AllocHGlobal(valueLength);
+            int result = Call<int, NativeGetAppData>(
+                this.Functions.GetAppData,
+                this.ObjectAddress,
+                appId,
+                key,
+                valuePointer,
+                valueLength);
+            var value = result == 0 ? null : NativeStrings.PointerToString(valuePointer, valueLength);
+            Marshal.FreeHGlobal(valuePointer);
+            return value;
         }
+
         #endregion
     }
 }
