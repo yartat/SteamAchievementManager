@@ -4,11 +4,14 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-Steam Achievement Manager (SAM) — a portable Windows Forms tool that reads and writes
+Steam Achievement Manager (SAM) — a portable desktop tool that reads and writes
 achievements and stats for games in a Steam library. It works by loading Steam's own
 `steamclient.dll` in-process and calling its **C++ COM-like vtable interfaces** directly
-through hand-rolled P/Invoke. There is no Steamworks SDK dependency and no NuGet package
-of any kind: the entire native surface is reimplemented in `SAM.API`.
+through hand-rolled P/Invoke. There is no Steamworks SDK dependency: the entire native
+surface is reimplemented in `SAM.API`, which has no package references at all.
+
+The UI is **Avalonia 12** (migrated from Windows Forms). `SAM.API` was not touched by that
+migration and stays free of any UI dependency.
 
 This repository is **`yartat/SteamAchievementManager`**, a fork of the original
 `gibbed/SteamAchievementManager` (both remotes are configured: `origin` and `upstream`).
@@ -19,8 +22,8 @@ in file headers.
 
 | Project | Output | Role |
 |---|---|---|
-| `SAM.API` | `SAM.API.dll` (class library) | All native interop. Loads `steamclient.dll`, resolves vtables, marshals calls, pumps callbacks. |
-| `SAM.Picker` | `bin/SAM.Picker.exe` (WinExe) | Entry point. Downloads the app-ID list, filters to games you own, launches `SAM.Game`. |
+| `SAM.API` | `SAM.API.dll` (class library) | All native interop. Loads `steamclient.dll`, resolves vtables, marshals calls, pumps callbacks. Also owns the Valve KeyValues parsers (`KeyValue` binary, `TextKeyValue` text), which both apps use. |
+| `SAM.Picker` | `bin/SAM.Picker.exe` (WinExe) | Entry point. Downloads the app-ID list, filters to games you own, launches `SAM.Game`. Two view modes: tiles and content. |
 | `SAM.Game` | `bin/SAM.Game.exe` (WinExe) | Per-game editor. Takes an app ID argv, reads the stats schema, edits achievements/stats. |
 
 `SAM.Game.exe` with no arguments re-launches `SAM.Picker.exe`. Both executables refuse to
@@ -42,8 +45,9 @@ apphost; the default `AnyCPU` build produces a 64-bit one. That distinction is l
 — see [Bitness](#bitness).
 
 A framework-dependent build needs the .NET 10 Desktop Runtime present to run. `bin/` must
-therefore ship `.exe`, `.dll`, `.runtimeconfig.json` **and** `.deps.json`; dropping the
-last two produces an executable that will not start.
+therefore ship `.exe`, `.dll`, `.runtimeconfig.json`, `.deps.json`, the Avalonia and
+Skia assemblies **and** the `runtimes/` subdirectory that carries `libSkiaSharp` and
+`libHarfBuzzSharp`. Shipping only the `.exe` files produces something that will not start.
 
 There are **no tests** in this repository and no test framework is referenced.
 
@@ -83,7 +87,7 @@ used to. If something works in the `x86` configuration and not in `AnyCPU`, this
    `[UnmanagedFunctionPointer(CallingConvention.ThisCall)]` with the object pointer passed
    explicitly as the first argument.
 
-### Two invariants you must not break
+### Three invariants you must not break
 
 **1. Vtable struct field order is an ABI contract.** The structs in `SAM.API/Interfaces/`
 (`ISteamClient018`, `ISteamUserStats013`, `ISteamUtils005`, …) mirror the exact layout of
@@ -98,20 +102,97 @@ Requesting one version and interpreting it as another is the same bug as reorder
 fields. Keep `GetSteamUserStats013` ↔ `"STEAMUSERSTATS_INTERFACE_VERSION013"`,
 `GetSteamApps001` ↔ `"STEAMAPPS_INTERFACE_VERSION001"`, and so on.
 
+**3. Every vtable delegate needs `[UnmanagedFunctionPointer(CallingConvention.ThisCall)]`
+and an explicit `IntPtr self` first parameter.** These are C++ member functions; the object
+pointer is an argument and must be passed as `ObjectAddress`. `GetISteamApps` was missing
+both for years. On x86 it went unnoticed, because dropping `this` still left the remaining
+arguments at the stack offsets `thiscall` expected. On x64 there is one register-based
+convention, so every argument shifted by one, Steam returned a null interface, and
+`SetupFunctions` threw a `NullReferenceException` — which is how it finally surfaced, once
+the .NET 10 migration made x64 the default. When adding an accessor, copy the shape of
+`GetISteamUser`, and test in **both** bitnesses; x86 hides this entire class of bug.
+
 ### Callbacks
 
 Steam delivers results by callback, not return value. `Client.RunCallbacks(false)` drains
 `Steam_BGetCallback` in a loop and dispatches by numeric `Id` to registered `ICallback`
-instances. Both forms poll it from a WinForms `Timer` (`OnTimer`), so callbacks arrive on
-the UI thread. `_RunningCallbacks` guards against re-entrancy.
+instances. Both view models poll it from an Avalonia `DispatcherTimer` (`OnTimer`, 200 ms),
+so callbacks arrive on the UI thread. `_RunningCallbacks` guards against re-entrancy.
+Stopping that timer on window close is what `Shutdown()` is for.
 
-`SAM.Game/Manager.cs` drives everything from `OnUserStatsReceived`: it loads the schema,
-then populates achievements and stats. `RefreshStats` only *requests* — nothing is
-populated synchronously.
+`ManagerViewModel` drives everything from `OnUserStatsReceived`: it loads the schema, then
+populates achievements and stats. `RefreshStats` only *requests* — nothing is populated
+synchronously.
+
+### The UI layer
+
+Both apps follow the same Avalonia shape, and it is worth knowing before editing either:
+
+- `Program.Main` builds the `AppBuilder` and calls `StartWithClassicDesktopLifetime`.
+- `App.OnFrameworkInitializationCompleted` does the Steam handshake and *chooses* the main
+  window: the real window on success, or a `MessageWindow` carrying the error on failure.
+  This replaces the WinForms pattern of showing a `MessageBox` before `Application.Run`.
+  The `API.Client` is owned by `App` and disposed on `ShutdownRequested`.
+- `ViewModels/` hold all logic and every Steam call. Views are XAML plus thin code-behind.
+- `Views/MessageWindow.cs` is a hand-rolled stand-in for `MessageBox`, which Avalonia has
+  no equivalent of. View models cannot show dialogs (no window to parent to), so they raise
+  `ErrorRaised` / `MessageRaised` / `ConfirmRequested` and the window handles them.
+- Bindings are compiled (`AvaloniaUseCompiledBindingsByDefault`), so every `DataTemplate`
+  needs an `x:DataType` and binding typos are build errors rather than silent no-ops.
+- Images are `Avalonia.Media.Imaging.Bitmap`. Unlike `System.Drawing.Bitmap` it copies the
+  decoded pixels, so the source stream can be disposed immediately — which is why the old
+  "bitmap outlives its MemoryStream" bug does not exist in the ported code.
+
+### Picker view modes and `LibraryStats`
+
+The picker's toolbar has a single `ToggleSplitButton`. Its primary half shows the active
+mode's icon and label and flips to the other mode on click (`IsChecked` is bound to
+`IsContentView`); its drop-down half is a `MenuFlyout` that selects a mode outright via
+`ShowTilesCommand` / `ShowContentCommand`. Tiles is the capsule grid; Content is one row
+per game with a small capsule, name, playtime and `earned / total` achievements. Both views
+bind the same `FilteredGames` collection; only `IsVisible` differs.
+
+The two mode glyphs are `PathIcon` geometries declared in `Window.Resources`, not bitmaps.
+The Fugue set used for the rest of the toolbar has no grid or list glyph, and a `PathIcon`
+inherits the theme foreground so it stays legible in dark mode — which the PNG icons do
+not. Follow that precedent for any further UI-state icons.
+
+Where the numbers come from matters, because the obvious approach does not work:
+
+**`ISteamUserStats` is scoped to the one app id the process was initialised with.** That is
+the whole reason SAM launches a separate `SAM.Game` process per game. The picker
+(`Initialize(0)`) therefore *cannot* ask Steam for another game's achievements. Do not try
+to "just call `RequestUserStats` in a loop" — that is a dead end, not an optimisation
+problem.
+
+`SAM.Picker/LibraryStats.cs` reads Steam's own on-disk caches instead:
+
+- **Total achievements** — `appcache/stats/UserGameStatsSchema_<appid>.bin`, the same file
+  and parser `ManagerViewModel` already uses.
+- **Earned achievements** — `appcache/stats/UserGameStats_<accountid>_<appid>.bin`. Under
+  `cache`, each numbered block holds a `data` Int32 **bitfield** plus an
+  `AchievementTimes` subkey. Earned is the popcount of `data` masked to the bits the
+  schema defines for that block. (Counting `AchievementTimes` entries gives the same
+  answer, but the bitfield is the authoritative field.)
+- **Playtime** — `userdata/<accountid>/config/localconfig.vdf`, at
+  `UserLocalConfigStore/Software/Valve/Steam/apps/<appid>/Playtime`, in **minutes**.
+
+Two things to keep in mind when touching this:
+
+- The file names use the **32-bit account id** (`steamId & 0xFFFFFFFF`), not the 64-bit
+  SteamID.
+- Coverage is partial. Steam only writes these caches for games it has actually fetched or
+  run, so `TryGet` returns `null` for the rest and the UI shows `—`. **Unknown and zero are
+  different answers** — do not collapse them.
+
+All of this was validated against the live API (`RequestUserStats` +
+`GetAchievementAndUnlockTime`) for several games and matched exactly, including
+Civilization V at 64/286. If you change the parsing, re-validate the same way rather than
+eyeballing it; a plausible-looking wrong number here is worse than no number.
 
 ### The stats schema
 
-`SAM.Game/Manager.cs:LoadUserGameStatsSchema` parses
+`ManagerViewModel.LoadUserGameStatsSchema` parses
 `<SteamInstall>/appcache/stats/UserGameStatsSchema_<appid>.bin`, a Valve binary KeyValues
 blob, with the hand-written parser in `SAM.Game/KeyValue.cs`. It handles **two schema
 shapes**: a newer one where `stat.type` is a string enum name, and an older one where
@@ -120,10 +201,19 @@ shapes**: a newer one where `stat.type` is a string enum name, and an older one 
 
 ### Threading
 
-`SAM.Picker` uses `BackgroundWorker` for the game-list and logo downloads. WinForms
-controls may only be touched on the UI thread — `GamePicker.ChangePickerLabelText`
-exists to marshal via `Invoke`. Anything running inside a `DoWork` handler must go
-through it.
+Downloads are `async`/`HttpClient` on the UI thread's synchronization context, so
+continuations come back on the UI thread and no marshalling is needed — the
+`BackgroundWorker` + `Invoke` dance the WinForms build required is gone.
+
+The one deliberate exception is the ownership sweep in
+`GamePickerViewModel.LoadGamesAsync`, which is wrapped in `Task.Run`. It makes two Steam
+calls per app id across the whole published game list, so it cannot run on the UI thread.
+The WinForms build ran it on a `BackgroundWorker` for exactly the same reason. Note this
+means **Steam client calls do happen off the UI thread there** — that is pre-existing
+behaviour, preserved deliberately, not an invitation to add more.
+
+Logo and icon downloads use a single-consumer queue (`ConcurrentQueue` + `SemaphoreSlim`),
+one download at a time, matching the old single-`BackgroundWorker` behaviour.
 
 ## Conventions
 
@@ -139,6 +229,14 @@ Match the surrounding style; it is consistent and deliberate even where it is un
 - Suppressions live in per-project `GlobalSuppressions.cs`, not inline.
 
 `LangVersion` is `latest` in all three projects.
+
+One trap: `using static InvariantShorthand` puts a method named `_` in scope, so `_` is
+**not** available as a discard in files that import it. Name the variable instead.
+
+View models use CommunityToolkit.Mvvm. `[ObservableProperty]` on a `_PascalCase` field
+generates the matching `PascalCase` property, so the source generator and the existing
+field-naming convention agree. Properties whose setter needs to trigger a re-filter are
+written out by hand rather than generated.
 
 ## .NET Core semantics that bit this codebase
 
@@ -165,22 +263,23 @@ reintroduced.
 The interop layer itself was **not** rewritten.
 `[UnmanagedFunctionPointer(CallingConvention.ThisCall)]` plus `Delegate.DynamicInvoke` over
 raw vtable slots still compiles and is still the mechanism — and it **works on .NET 10**,
-verified against the real `steamclient.dll` in both bitnesses:
+verified against a live, logged-in Steam client:
 
-| Step | x64 | x86 |
-|---|---|---|
-| `Steam.GetInstallPath()` from the registry | OK | OK |
-| `Steam.Load()` — `LoadLibraryEx` + 3 exports | OK (`steamclient64.dll`) | OK (`steamclient.dll`) |
-| `CreateInterface("SteamClient018")` + vtable marshal | OK | OK |
-| `CreateSteamPipe()` — real `thiscall` vtable dispatch | OK | OK |
+| Step | Result |
+|---|---|
+| `Steam.GetInstallPath()` from the registry | OK (identical in the 32- and 64-bit registry views) |
+| `Steam.Load()` — `LoadLibraryEx` + 3 exports | OK — `steamclient64.dll` on x64, `steamclient.dll` on x86 |
+| `CreateInterface("SteamClient018")` + vtable marshal | OK in both bitnesses |
+| `CreateSteamPipe()` / `ConnectToGlobalUser()` | OK |
+| `GetSteamApps001().GetAppData(480, "name")` | OK — returns `Spacewar` |
+| `GetSteamApps008().IsSubscribedApp(480)` | OK |
+| `GetSteamUser012().IsLoggedIn()` | OK |
+| Schema load + achievement/stat read (Terraria, 105600) | OK — 137 achievements, 10 statistics |
 
-So the calling convention, the `NativeClass`/vtable `PtrToStructure` marshalling and the
-delegate cache are all sound on .NET 10. What is **still unverified** is everything past
-`CreateSteamPipe`, because that needs a Steam client that is running and logged in:
-`ConnectToGlobalUser`, the `GetISteam*` accessors, the callback pump, schema loading, and
-achievement/stat writes. Those are the interfaces where a wrong version string or a
-misordered vtable struct would show up — exercise them against a live client before
-trusting a release.
+Getting there required fixing the `GetISteamApps` signature described in invariant #3.
+What remains unverified is the **write** path — `SetAchievement`, `SetStatValue`,
+`StoreStats` and `ResetAllStats`. Those mutate a real Steam account, so they were left
+alone deliberately; exercise them by hand on a throwaway title before trusting a release.
 
 If the interop ever does misbehave, the modern replacement is C# function pointers
 (`delegate* unmanaged[Thiscall]<...>`), which Microsoft documents as "more efficient,
@@ -193,25 +292,25 @@ is not a candidate, and `Marshal.GetDelegateForFunctionPointer` is annotated
 
 ## Known issues
 
+A clean build is **0 warnings, 0 errors** on both `AnyCPU` and `x86`. Keep it that way.
+
 - **`SAM.API/Wrappers/SteamClient018.cs`** — `GetSteamUtils004` requests `"SteamUtils004"`
   but still marshals the result as `ISteamUtils005`. Upstream requests `"SteamUtils005"`.
-  This violates invariant #2 above and predates the .NET 10 migration; confirm it is
-  intentional.
-- **`SAM.Picker/GamePicker.cs`** — in `DoDownloadList`, `_PickerStatusLabel.Text =
-  "Checking game ownership..."` runs on the `BackgroundWorker` thread. The
-  `ChangePickerLabelText` helper above it was applied to the first assignment only.
-- **`WebClient` is obsolete** (`SYSLIB0014`) at `SAM.Game/Manager.cs:42` and
-  `SAM.Picker/GamePicker.cs:116` and `:270`. It still works on .NET 10. The two
-  `GamePicker` uses are synchronous calls inside `DoWork` and convert to `HttpClient`
-  easily; `Manager._IconDownloader` is event-based (`DownloadDataAsync` /
-  `DownloadDataCompleted`, with the icon queue keyed off `IsBusy` and `UserState`) and
-  needs more care.
-- **`SAM.Game/Manager.cs:219`** — `warning CS0168`, `e` declared but never used.
-- **Pre-existing, unrelated to the migration:** `OnIconDownload` and `DoDownloadLogo` both
-  construct a `Bitmap` from a `MemoryStream` inside a `using` and use it after the stream
-  is disposed. GDI+ wants that stream alive for the bitmap's lifetime.
-
-These four warnings are the entire build output; a clean build is 4 warnings, 0 errors.
+  This bends invariant #2 and predates both migrations. It does not crash — the interface
+  comes back non-null and `GetAppId()` returns — so it has been left alone, but it is
+  still worth confirming as intentional.
+- **The logo queue is eager.** The WinForms build only downloaded capsule art for items
+  whose `ListViewItem.Bounds` intersected the visible list, using WinForms' virtual mode.
+  The Avalonia `ListBox` uses a `WrapPanel`, which does not virtualize, so every filtered
+  game's logo is queued instead. That is bounded by games *owned*, not by the full
+  published list, so it is a few hundred at worst — but it is more network traffic than
+  before. Moving to `ItemsRepeater` + `UniformGridLayout` would restore
+  virtualization and visible-only loading, at the cost of hand-rolled selection handling.
+- **Write path is unverified** — see the interop table above.
+- **The picker toolbar wraps rather than clips.** It is a `WrapPanel`, not a `StackPanel`:
+  when the view-mode control was added, a single fixed row ran off the right edge on a
+  narrow window and the last button became unreachable. If you add more toolbar items,
+  check the window at its `MinWidth`.
 
 ## Skills index
 
@@ -224,8 +323,12 @@ before implementing, then make the smallest change that fits the surrounding sty
   (to inspect what Steam or a .NET assembly actually does), plus the Microsoft Learn
   native-interop docs. This is the core of the codebase; verify against docs, never guess.
 - C# style and language level → `dotnet-skills:csharp-coding-standards`
-- Threading, `BackgroundWorker`, UI-thread marshalling, callback pumping →
+- Threading, async download queues, UI-thread marshalling, callback pumping →
   `dotnet-skills:csharp-concurrency-patterns`
+- Avalonia, XAML, MVVM, compiled bindings, `DataGrid`, styling → no packaged skill covers
+  this; use the Avalonia docs at <https://docs.avaloniaui.net>. Do not reach for the
+  WinForms or WPF skills, and do not assume WPF XAML translates one-to-one — Avalonia's
+  styling system is selector-based, not `Trigger`-based.
 - TFM changes, `Directory.Build.props`, `global.json`, `.slnx`, version management →
   `dotnet-skills:project-structure`
 - Replacing the obsolete `WebClient` usages with `HttpClient` →
@@ -259,7 +362,8 @@ before implementing, then make the smallest change that fits the surrounding sty
 **Not applicable here** — this project has no web, database, DI container, configuration
 system, cloud, or container surface. Skip the Aspire, EF Core, ASP.NET, Akka, Blazor,
 TestContainers, OpenTelemetry, and email skills; nothing in this repository will make them
-relevant.
+relevant. `playwright-blazor` in particular is not a way to test this UI — it is a desktop
+app, not a web one.
 
 ## CodeGraph
 

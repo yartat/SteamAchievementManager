@@ -12,7 +12,7 @@ This is a fork of [gibbed/SteamAchievementManager](https://github.com/gibbed/Ste
 
 | Component | Description |
 |---|---|
-| `SAM.Picker.exe` | Lists the games on your account and launches the manager for one of them. Start here. |
+| `SAM.Picker.exe` | Lists the games on your account and launches the manager for one of them. Start here. The toolbar's view button switches between **Tiles** and **Content**; click it to flip, or use its arrow to pick a mode. |
 | `SAM.Game.exe` | The achievement and statistics editor for a single game. Takes an app ID as its argument; run without one, it re-launches the picker. |
 | `SAM.API.dll` | The interop layer that talks to Steam's `steamclient.dll`. |
 
@@ -34,18 +34,24 @@ Current version: **7.0.x** (latest tag `7.0.41`). The 7.0 series marks the open-
 - Achievement unlock times are shown in the manager.
 - 64-bit support: `steamclient64.dll` is loaded when running as a 64-bit process, and the projects build for `AnyCPU` as well as `x86`.
 - **Migrated from .NET Framework 4.8 to .NET 10.** The default `AnyCPU` build now runs as a 64-bit process and talks to the 64-bit Steam client; build the `x86` configuration if you need a 32-bit process.
+- **Migrated from Windows Forms to [Avalonia](https://avaloniaui.net/).** The interop layer is unchanged; only the UI was rewritten.
+- **Two picker view modes.** *Tiles* shows large capsule art with the game name. *Content* shows a row per game with a small icon, the name, hours played, and earned/total achievements. Playtime and achievement counts are read from Steam's local caches, so they are only available for games Steam has already fetched data for; anything else shows `—`.
+- Fixed a long-standing bug in the `ISteamClient::GetISteamApps` interop signature, which was missing the `this` pointer. It went unnoticed for years in 32-bit builds but returns a null interface in 64-bit ones.
 
 ## Building
 
 Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). The exact
 version is pinned in `global.json`. No Visual Studio installation is required, though
-Visual Studio 2022 17.14 or newer will also open and build the solution.
+Visual Studio 2022 17.14 or newer will also open and build the solution. NuGet packages
+(Avalonia, CommunityToolkit.Mvvm) are restored automatically.
 
 ```
 dotnet build SAM.sln -c Release
 ```
 
-Executables are written to `bin\`. For a 32-bit build:
+Executables are written to `bin\`, alongside the Avalonia assemblies and a `runtimes\`
+folder — the whole directory is needed to run, not just the `.exe` files. For a 32-bit
+build:
 
 ```
 dotnet build SAM.sln -c Release -p:Platform=x86

@@ -22,13 +22,13 @@
 
 using System;
 using System.IO;
-using System.Windows.Forms;
+using Avalonia;
 
 namespace SAM.Picker
 {
     internal static class Program
     {
-        private static bool IsRunningFromSteamDirectory()
+        internal static bool IsRunningFromSteamDirectory()
         {
             var installPath = API.Steam.GetInstallPath();
             if (string.IsNullOrEmpty(installPath) == true)
@@ -42,59 +42,17 @@ namespace SAM.Picker
         }
 
         [STAThread]
-        private static void Main()
+        private static void Main(string[] args)
         {
-            if (IsRunningFromSteamDirectory() == true)
-            {
-                MessageBox.Show(
-                    "This tool declines to being run from the Steam directory.",
-                    "Error",
-                    MessageBoxButtons.OK,
-                    MessageBoxIcon.Error);
-                return;
-            }
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        }
 
-            using (API.Client client = new())
-            {
-                try
-                {
-                    client.Initialize(0);
-                }
-                catch (API.ClientInitializeException e)
-                {
-                    if (string.IsNullOrEmpty(e.Message) == false)
-                    {
-                        MessageBox.Show(
-                            "Steam is not running. Please start Steam then run this tool again.\n\n" +
-                            "(" + e.Message + ")",
-                            "Error",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Error);
-                    }
-                    else
-                    {
-                        MessageBox.Show(
-                            "Steam is not running. Please start Steam then run this tool again.",
-                            "Error",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Error);
-                    }
-                    return;
-                }
-                catch (DllNotFoundException)
-                {
-                    MessageBox.Show(
-                        "You've caused an exceptional error!",
-                        "Error",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Error);
-                    return;
-                }
-
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new GamePicker(client));
-            }
+        // Referenced by the Avalonia XAML previewer.
+        public static AppBuilder BuildAvaloniaApp()
+        {
+            return AppBuilder.Configure<App>()
+                .UsePlatformDetect()
+                .LogToTrace();
         }
     }
 }

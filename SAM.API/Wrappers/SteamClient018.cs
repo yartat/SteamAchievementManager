@@ -179,13 +179,21 @@ namespace SAM.API.Wrappers
 
         #region GetISteamApps
 
-        private delegate IntPtr NativeGetISteamApps(int user, int pipe, [MarshalAs(UnmanagedType.LPUTF8Str)] string version);
+        // Every ISteamClient accessor is a C++ member function, so the object
+        // pointer has to be passed explicitly as the first argument under the
+        // thiscall convention. This one was missing both the attribute and the
+        // `self` parameter: on x86 it survived because the non-this arguments
+        // still landed at the right stack offsets, but on x64 every argument
+        // shifts by one register and Steam returns a null interface.
+        [UnmanagedFunctionPointer(CallingConvention.ThisCall)]
+        private delegate IntPtr NativeGetISteamApps(IntPtr self, int user, int pipe, [MarshalAs(UnmanagedType.LPUTF8Str)] string version);
 
         private TClass GetISteamApps<TClass>(int user, int pipe, string version)
             where TClass : INativeWrapper, new()
         {
             var address = Call<IntPtr, NativeGetISteamApps>(
                 Functions.GetISteamApps,
+                ObjectAddress,
                 user,
                 pipe,
                 version);

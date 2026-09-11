@@ -21,28 +21,65 @@
  */
 
 using System;
-using System.Windows.Forms;
+using System.Globalization;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace SAM.Game.Stats
 {
-    internal class AchievementInfo
+    internal sealed partial class AchievementInfo : ObservableObject
     {
-        public string Id;
-        public bool IsAchieved;
-        public DateTime? UnlockTime;
-        public int Permission;
-        public string IconNormal;
-        public string IconLocked;
-        public string Name;
-        public string Description;
-        public ListViewItem Item;
+        public string Id { get; set; }
+        public DateTime? UnlockTime { get; set; }
+        public int Permission { get; set; }
+        public string IconNormal { get; set; }
+        public string IconLocked { get; set; }
+        public string Name { get; set; }
+        public string Description { get; set; }
 
-        #region public int ImageIndex;
-        public int ImageIndex
-        {
-            get => this.Item.ImageIndex;
-            set => this.Item.ImageIndex = value;
-        }
-        #endregion
+        /// <summary>
+        /// True for achievements Steam will not let SAM manage. The view tints
+        /// these and the view model refuses to toggle them.
+        /// </summary>
+        public bool IsProtected => (this.Permission & 3) != 0;
+
+        /// <summary>
+        /// The WinForms build painted protected rows dark red; keep that cue.
+        /// Exposed as a brush rather than a converter to match how
+        /// <see cref="Icon"/> is already handled.
+        /// </summary>
+        public IBrush RowBackground => this.IsProtected == true
+            ? new SolidColorBrush(Color.FromArgb(64, 200, 0, 0))
+            : Brushes.Transparent;
+
+        /// <summary>
+        /// The state as last read from Steam, used to work out what actually
+        /// needs storing.
+        /// </summary>
+        public bool OriginalValue { get; set; }
+
+        [ObservableProperty]
+        private bool _IsAchieved;
+
+        [ObservableProperty]
+        private Bitmap _Icon;
+
+        public string CurrentIconName => this.IsAchieved == true ? this.IconNormal : this.IconLocked;
+
+        public string DisplayName =>
+            this.Name != null && this.Name.StartsWith("#", StringComparison.InvariantCulture) == true
+                ? this.Id
+                : this.Name;
+
+        public string DisplayDescription =>
+            this.Name != null && this.Name.StartsWith("#", StringComparison.InvariantCulture) == true
+                ? ""
+                : this.Description;
+
+        public string UnlockTimeText =>
+            this.UnlockTime.HasValue == true
+                ? this.UnlockTime.Value.ToString(CultureInfo.CurrentCulture)
+                : "";
     }
 }

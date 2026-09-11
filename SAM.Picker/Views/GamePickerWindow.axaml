@@ -1,0 +1,231 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SAM.Picker.ViewModels"
+        xmlns:local="using:SAM.Picker"
+        x:Class="SAM.Picker.Views.GamePickerWindow"
+        x:DataType="vm:GamePickerViewModel"
+        Icon="/SAM.ico"
+        Width="900" Height="560"
+        MinWidth="420" MinHeight="320"
+        Title="Steam Achievement Manager 7.0 | Pick a game... Any game...">
+
+  <Window.Resources>
+    <!-- Drawn rather than shipped as PNGs: the Fugue set used elsewhere has no
+         grid/list glyph, and a PathIcon inherits the theme foreground so it
+         stays legible in both light and dark, which the bitmap icons do not. -->
+    <StreamGeometry x:Key="TilesIcon">M1,1 H7 V7 H1 Z M9,1 H15 V7 H9 Z M1,9 H7 V15 H1 Z M9,9 H15 V15 H9 Z</StreamGeometry>
+    <StreamGeometry x:Key="ContentIcon">M1,2 H5 V6 H1 Z M7,3 H15 V5 H7 Z M1,9 H5 V13 H1 Z M7,10 H15 V12 H7 Z</StreamGeometry>
+  </Window.Resources>
+
+  <DockPanel>
+
+    <!-- Toolbar -->
+    <Border DockPanel.Dock="Top"
+            Padding="6,4"
+            BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <!-- Wraps rather than clips: with the view-mode toggles added, a fixed
+           row runs off the right edge on a narrow window and the last button
+           becomes unreachable. -->
+      <WrapPanel Orientation="Horizontal">
+        <WrapPanel.Styles>
+          <Style Selector="WrapPanel > :is(Control)">
+            <Setter Property="Margin" Value="0,0,6,0" />
+          </Style>
+        </WrapPanel.Styles>
+
+        <Button Command="{Binding RefreshCommand}"
+                IsEnabled="{Binding CanRefresh}"
+                ToolTip.Tip="Refresh the list of owned games">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Image Source="/Resources/arrow-circle-double.png" Width="16" Height="16" />
+            <TextBlock Text="Refresh Games" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
+
+        <Rectangle Width="1" Margin="2,2"
+                   Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+
+        <TextBox Text="{Binding AddGameText}"
+                 Width="110"
+                 PlaceholderText="App ID"
+                 VerticalAlignment="Center">
+          <TextBox.KeyBindings>
+            <KeyBinding Gesture="Enter" Command="{Binding AddGameByIdCommand}" />
+          </TextBox.KeyBindings>
+        </TextBox>
+
+        <Button Command="{Binding AddGameByIdCommand}"
+                ToolTip.Tip="Show a single game by its app ID">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Image Source="/Resources/magnifier.png" Width="16" Height="16" />
+            <TextBlock Text="Add Game" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
+
+        <Rectangle Width="1" Margin="2,2"
+                   Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+
+        <TextBlock Text="Filter" VerticalAlignment="Center" />
+
+        <TextBox Text="{Binding SearchText}"
+                 Width="160"
+                 PlaceholderText="Search by name"
+                 VerticalAlignment="Center" />
+
+        <Button ToolTip.Tip="Game filtering">
+          <Button.Flyout>
+            <Flyout Placement="BottomEdgeAlignedLeft">
+              <StackPanel Spacing="6" Margin="4">
+                <CheckBox IsChecked="{Binding ShowGames}" Content="Show _games" />
+                <CheckBox IsChecked="{Binding ShowDemos}" Content="Show _demos" />
+                <CheckBox IsChecked="{Binding ShowMods}" Content="Show _mods" />
+                <CheckBox IsChecked="{Binding ShowJunk}" Content="Show _junk" />
+              </StackPanel>
+            </Flyout>
+          </Button.Flyout>
+          <Image Source="/Resources/television-test.png" Width="16" Height="16" />
+        </Button>
+
+        <Rectangle Width="1" Margin="2,2"
+                   Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+
+        <!-- Primary half shows the active mode and flips to the other on click;
+             the drop-down half selects a mode explicitly. -->
+        <ToggleSplitButton IsChecked="{Binding IsContentView}"
+                           ToolTip.Tip="Click to switch view; use the arrow to pick one">
+          <Panel>
+            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsTileView}">
+              <PathIcon Data="{StaticResource TilesIcon}" Width="14" Height="14" />
+              <TextBlock Text="Tiles" VerticalAlignment="Center" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsContentView}">
+              <PathIcon Data="{StaticResource ContentIcon}" Width="14" Height="14" />
+              <TextBlock Text="Content" VerticalAlignment="Center" />
+            </StackPanel>
+          </Panel>
+          <ToggleSplitButton.Flyout>
+            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+              <MenuItem Header="Tiles"
+                        Command="{Binding ShowTilesCommand}"
+                        ToolTip.Tip="Large capsule art with the game name">
+                <MenuItem.Icon>
+                  <PathIcon Data="{StaticResource TilesIcon}" Width="14" Height="14" />
+                </MenuItem.Icon>
+              </MenuItem>
+              <MenuItem Header="Content"
+                        Command="{Binding ShowContentCommand}"
+                        ToolTip.Tip="Rows with playtime and achievement counts">
+                <MenuItem.Icon>
+                  <PathIcon Data="{StaticResource ContentIcon}" Width="14" Height="14" />
+                </MenuItem.Icon>
+              </MenuItem>
+            </MenuFlyout>
+          </ToggleSplitButton.Flyout>
+        </ToggleSplitButton>
+
+      </WrapPanel>
+    </Border>
+
+    <!-- Status bar -->
+    <Border DockPanel.Dock="Bottom"
+            Padding="8,4"
+            BorderThickness="0,1,0,0"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right"
+                    Orientation="Horizontal"
+                    Spacing="6"
+                    IsVisible="{Binding IsDownloadStatusVisible}">
+          <Image Source="/Resources/download-cloud.png" Width="16" Height="16" />
+          <TextBlock Text="{Binding DownloadStatusText}" VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock Text="{Binding StatusText}"
+                   VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis" />
+      </DockPanel>
+    </Border>
+
+    <!-- Tile view -->
+    <ListBox Name="_GameTileBox"
+             IsVisible="{Binding IsTileView}"
+             ItemsSource="{Binding FilteredGames}"
+             SelectedItem="{Binding SelectedGame}"
+             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+             DoubleTapped="OnGameDoubleTapped"
+             KeyDown="OnGameListKeyDown">
+      <ListBox.ItemsPanel>
+        <ItemsPanelTemplate>
+          <WrapPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
+      </ListBox.ItemsPanel>
+      <ListBox.ItemTemplate>
+        <DataTemplate x:DataType="local:GameInfo">
+          <StackPanel Width="200" Margin="4" Spacing="4">
+            <Border Height="80"
+                    Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                    CornerRadius="3">
+              <Image Source="{Binding Logo}" Stretch="Uniform" />
+            </Border>
+            <TextBlock Text="{Binding Name}"
+                       TextWrapping="Wrap"
+                       MaxLines="2"
+                       TextTrimming="CharacterEllipsis"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center" />
+          </StackPanel>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+
+    <!-- Content view -->
+    <DockPanel IsVisible="{Binding IsContentView}">
+      <Border DockPanel.Dock="Top"
+              Padding="6,3"
+              Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+        <Grid ColumnDefinitions="60,*,90,110">
+          <TextBlock Grid.Column="1" Text="Name" FontWeight="SemiBold" />
+          <TextBlock Grid.Column="2" Text="Played" FontWeight="SemiBold" TextAlignment="Right" />
+          <TextBlock Grid.Column="3" Text="Achievements" FontWeight="SemiBold" TextAlignment="Right" />
+        </Grid>
+      </Border>
+
+      <ListBox Name="_GameContentBox"
+               ItemsSource="{Binding FilteredGames}"
+               SelectedItem="{Binding SelectedGame}"
+               ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+               DoubleTapped="OnGameDoubleTapped"
+               KeyDown="OnGameListKeyDown">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="local:GameInfo">
+            <Grid ColumnDefinitions="60,*,90,110" MinHeight="32">
+              <Border Grid.Column="0"
+                      Width="48" Height="22"
+                      HorizontalAlignment="Left"
+                      Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                      CornerRadius="2">
+                <Image Source="{Binding Logo}" Stretch="Uniform" />
+              </Border>
+              <TextBlock Grid.Column="1"
+                         Text="{Binding Name}"
+                         VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis"
+                         Margin="4,0" />
+              <TextBlock Grid.Column="2"
+                         Text="{Binding PlaytimeText}"
+                         VerticalAlignment="Center"
+                         TextAlignment="Right"
+                         Margin="4,0" />
+              <TextBlock Grid.Column="3"
+                         Text="{Binding AchievementsText}"
+                         VerticalAlignment="Center"
+                         TextAlignment="Right"
+                         Margin="4,0" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
+
+  </DockPanel>
+</Window>

@@ -1,0 +1,179 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SAM.Game.ViewModels"
+        xmlns:stats="using:SAM.Game.Stats"
+        x:Class="SAM.Game.Views.ManagerWindow"
+        x:DataType="vm:ManagerViewModel"
+        Icon="/Blank.ico"
+        Width="740" Height="560"
+        MinWidth="520" MinHeight="360"
+        Title="{Binding Title}">
+
+  <DockPanel>
+
+    <!-- Main toolbar -->
+    <Border DockPanel.Dock="Top"
+            Padding="6,4"
+            BorderThickness="0,0,0,1"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <StackPanel Orientation="Horizontal" Spacing="6" IsEnabled="{Binding IsInputEnabled}">
+        <Button Command="{Binding StoreCommand}" ToolTip.Tip="Commit pending changes to Steam">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Image Source="/Resources/transmitter.png" Width="16" Height="16" />
+            <TextBlock Text="Commit Changes" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Command="{Binding ReloadCommand}">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Image Source="/Resources/arrow-circle-double.png" Width="16" Height="16" />
+            <TextBlock Text="Refresh" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
+        <Button Command="{Binding ResetAllStatsCommand}" ToolTip.Tip="Reset all stats for this game">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <Image Source="/Resources/bomb.png" Width="16" Height="16" />
+            <TextBlock Text="Reset" VerticalAlignment="Center" />
+          </StackPanel>
+        </Button>
+      </StackPanel>
+    </Border>
+
+    <!-- Status bar -->
+    <Border DockPanel.Dock="Bottom"
+            Padding="8,4"
+            BorderThickness="0,1,0,0"
+            BorderBrush="{DynamicResource SystemControlForegroundBaseLowBrush}">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right"
+                    Orientation="Horizontal"
+                    Spacing="6"
+                    IsVisible="{Binding IsDownloadStatusVisible}">
+          <Image Source="/Resources/download-cloud.png" Width="16" Height="16" />
+          <TextBlock Text="{Binding DownloadStatusText}" VerticalAlignment="Center" />
+        </StackPanel>
+        <TextBlock Text="{Binding StatusText}"
+                   VerticalAlignment="Center"
+                   TextTrimming="CharacterEllipsis" />
+      </DockPanel>
+    </Border>
+
+    <TabControl>
+
+      <TabItem Header="Achievements">
+        <DockPanel>
+
+          <Border DockPanel.Dock="Top" Padding="0,0,0,6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Command="{Binding LockAllCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Image Source="/Resources/lock.png" Width="16" Height="16" />
+                  <TextBlock Text="Lock All" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+              <Button Command="{Binding InvertAllCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Image Source="/Resources/lock--pencil.png" Width="16" Height="16" />
+                  <TextBlock Text="Invert All" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+              <Button Command="{Binding UnlockAllCommand}">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <Image Source="/Resources/lock-unlock.png" Width="16" Height="16" />
+                  <TextBlock Text="Unlock All" VerticalAlignment="Center" />
+                </StackPanel>
+              </Button>
+
+              <Rectangle Width="1" Margin="2,2"
+                         Fill="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+
+              <TextBlock Text="Show only" VerticalAlignment="Center" />
+              <ToggleButton IsChecked="{Binding ShowLockedOnly}" Content="locked" />
+              <ToggleButton IsChecked="{Binding ShowUnlockedOnly}" Content="unlocked" />
+
+              <TextBlock Text="Filter" VerticalAlignment="Center" />
+              <TextBox Text="{Binding MatchingString}"
+                       Width="160"
+                       VerticalAlignment="Center"
+                       ToolTip.Tip="Text that must appear in the name or description" />
+            </StackPanel>
+          </Border>
+
+          <!-- Header -->
+          <Border DockPanel.Dock="Top"
+                  Padding="6,3"
+                  Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+            <Grid ColumnDefinitions="28,40,2*,3*,150">
+              <TextBlock Grid.Column="2" Text="Name" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="3" Text="Description" FontWeight="SemiBold" />
+              <TextBlock Grid.Column="4" Text="Unlock Time" FontWeight="SemiBold" />
+            </Grid>
+          </Border>
+
+          <ListBox ItemsSource="{Binding Achievements}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="stats:AchievementInfo">
+                <Grid ColumnDefinitions="28,40,2*,3*,150"
+                      MinHeight="40"
+                      Background="{Binding RowBackground}">
+                  <CheckBox Grid.Column="0"
+                            IsChecked="{Binding IsAchieved}"
+                            IsEnabled="{Binding !IsProtected}"
+                            VerticalAlignment="Center" />
+                  <Image Grid.Column="1"
+                         Source="{Binding Icon}"
+                         Width="32" Height="32"
+                         VerticalAlignment="Center" />
+                  <TextBlock Grid.Column="2"
+                             Text="{Binding DisplayName}"
+                             TextWrapping="Wrap"
+                             VerticalAlignment="Center"
+                             Margin="4,0" />
+                  <TextBlock Grid.Column="3"
+                             Text="{Binding DisplayDescription}"
+                             TextWrapping="Wrap"
+                             VerticalAlignment="Center"
+                             Margin="4,0" />
+                  <TextBlock Grid.Column="4"
+                             Text="{Binding UnlockTimeText}"
+                             VerticalAlignment="Center"
+                             Margin="4,0" />
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+
+        </DockPanel>
+      </TabItem>
+
+      <TabItem Header="Statistics">
+        <DockPanel>
+          <CheckBox DockPanel.Dock="Bottom"
+                    Margin="0,6,0,0"
+                    IsChecked="{Binding IsStatsEditingEnabled}"
+                    Content="I understand by modifying the values of stats, I may screw things up and can't blame anyone but myself." />
+          <DataGrid ItemsSource="{Binding Statistics}"
+                    AutoGenerateColumns="False"
+                    CanUserReorderColumns="False"
+                    GridLinesVisibility="Horizontal"
+                    IsReadOnly="{Binding !IsStatsEditingEnabled}">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Name"
+                                  Width="260"
+                                  IsReadOnly="True"
+                                  Binding="{Binding DisplayName, x:DataType=stats:StatInfo}" />
+              <DataGridTextColumn Header="Value"
+                                  Width="120"
+                                  Binding="{Binding ValueText, x:DataType=stats:StatInfo}" />
+              <DataGridTextColumn Header="Extra"
+                                  Width="*"
+                                  IsReadOnly="True"
+                                  Binding="{Binding Extra, x:DataType=stats:StatInfo}" />
+            </DataGrid.Columns>
+          </DataGrid>
+        </DockPanel>
+      </TabItem>
+
+    </TabControl>
+
+  </DockPanel>
+</Window>

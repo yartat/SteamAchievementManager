@@ -20,16 +20,31 @@
  *    distribution.
  */
 
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+
 namespace SAM.Game.Stats
 {
-    internal abstract class StatInfo
+    internal abstract class StatInfo : ObservableObject, INotifyDataErrorInfo
     {
         public abstract bool IsModified { get; }
         public string Id { get; set; }
         public string DisplayName { get; set; }
-        public abstract object Value { get; set; }
         public bool IsIncrementOnly { get; set; }
         public int Permission { get; set; }
+
+        public bool IsProtected => (this.Permission & 2) != 0;
+
+        /// <summary>
+        /// Bound by the grid. Parsing and the protected-stat check live here
+        /// because Avalonia's DataGrid surfaces failures through
+        /// <see cref="INotifyDataErrorInfo"/> rather than through a
+        /// DataError event the way the WinForms DataGridView did.
+        /// </summary>
+        public abstract string ValueText { get; set; }
 
         public string Extra
         {
@@ -42,5 +57,35 @@ namespace SAM.Game.Stats
                 return flags.ToString();
             }
         }
+
+        #region INotifyDataErrorInfo
+
+        private string _ValueError;
+
+        public bool HasErrors => this._ValueError != null;
+
+        public event EventHandler<DataErrorsChangedEventArgs> ErrorsChanged;
+
+        public IEnumerable GetErrors(string propertyName)
+        {
+            if (propertyName == nameof(this.ValueText) && this._ValueError != null)
+            {
+                return new[] { this._ValueError };
+            }
+            return Array.Empty<string>();
+        }
+
+        protected void SetValueError(string error)
+        {
+            if (this._ValueError == error)
+            {
+                return;
+            }
+            this._ValueError = error;
+            this.ErrorsChanged?.Invoke(this, new(nameof(this.ValueText)));
+            this.OnPropertyChanged(nameof(this.HasErrors));
+        }
+
+        #endregion
     }
 }

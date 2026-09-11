@@ -20,35 +20,87 @@
  *    distribution.
  */
 
+using System;
 using System.Globalization;
-using System.Windows.Forms;
+using Avalonia.Media.Imaging;
+using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace SAM.Picker
 {
-    internal class GameInfo
+    internal sealed partial class GameInfo : ObservableObject
     {
         private string _Name;
 
-        public uint Id;
-        public string Type;
-        public int ImageIndex;
+        public uint Id { get; }
+        public string Type { get; }
+        public string ImageUrl { get; set; }
+
+        /// <summary>
+        /// Filled in asynchronously by the logo downloader; the view binds to
+        /// it directly, so the assignment must happen on the UI thread.
+        /// </summary>
+        [ObservableProperty]
+        private Bitmap _Logo;
 
         public string Name
         {
             get => this._Name;
-            set => this._Name = value ?? "App " + this.Id.ToString(CultureInfo.InvariantCulture);
+            set => this.SetProperty(
+                ref this._Name,
+                value ?? "App " + this.Id.ToString(CultureInfo.InvariantCulture));
         }
 
-        public string ImageUrl;
+        /// <summary>
+        /// Filled in from Steam's on-disk caches by <see cref="LibraryStats"/>.
+        /// Null means "not known" — Steam only writes those caches for games
+        /// that have been launched — which is deliberately distinct from zero.
+        /// </summary>
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PlaytimeText))]
+        [NotifyPropertyChangedFor(nameof(AchievementsText))]
+        private GameStats? _Stats;
 
-        public ListViewItem Item;
+        public string PlaytimeText
+        {
+            get
+            {
+                if (this.Stats.HasValue == false)
+                {
+                    return "—";
+                }
+                var minutes = this.Stats.Value.PlaytimeMinutes;
+                if (minutes <= 0)
+                {
+                    return "never played";
+                }
+                var hours = minutes / 60.0;
+                return hours < 10
+                    ? hours.ToString("0.0", CultureInfo.CurrentCulture) + " h"
+                    : Math.Round(hours).ToString("0", CultureInfo.CurrentCulture) + " h";
+            }
+        }
+
+        public string AchievementsText
+        {
+            get
+            {
+                if (this.Stats.HasValue == false || this.Stats.Value.AchievementsTotal < 0)
+                {
+                    return "—";
+                }
+                if (this.Stats.Value.AchievementsTotal == 0)
+                {
+                    return "none";
+                }
+                return $"{this.Stats.Value.AchievementsEarned} / {this.Stats.Value.AchievementsTotal}";
+            }
+        }
 
         public GameInfo(uint id, string type)
         {
             this.Id = id;
             this.Type = type;
             this.Name = null;
-            this.ImageIndex = 0;
             this.ImageUrl = null;
         }
     }

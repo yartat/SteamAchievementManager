@@ -20,25 +20,40 @@
  *    distribution.
  */
 
+using System.Globalization;
+
 namespace SAM.Game.Stats
 {
-    internal class FloatStatInfo : StatInfo
+    internal sealed class FloatStatInfo : StatInfo
     {
         public float OriginalValue;
         public float FloatValue;
 
-        public override object Value
+        public override string ValueText
         {
-            get => this.FloatValue;
+            get => this.FloatValue.ToString(CultureInfo.CurrentCulture);
             set
             {
-                var f = float.Parse((string)value, System.Globalization.CultureInfo.CurrentCulture);
-                if ((this.Permission & 2) != 0 &&
-                    this.FloatValue.Equals(f) == false)
+                if (float.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out var f) == false)
                 {
-                    throw new StatIsProtectedException();
+                    this.SetValueError("Invalid value");
+                    return;
+                }
+
+                if (this.IsProtected == true && this.FloatValue.Equals(f) == false)
+                {
+                    this.SetValueError("Stat is protected! -- you can't modify it");
+                    return;
+                }
+
+                this.SetValueError(null);
+                if (this.FloatValue.Equals(f) == true)
+                {
+                    return;
                 }
                 this.FloatValue = f;
+                this.OnPropertyChanged(nameof(this.ValueText));
+                this.OnPropertyChanged(nameof(this.IsModified));
             }
         }
 

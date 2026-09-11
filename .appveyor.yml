@@ -46,13 +46,15 @@ build_script:
   - dotnet build SAM.sln -c Release -v minimal
 
 # Framework-dependent output: the .exe will not start without the matching
-# .NET Desktop Runtime, so the runtimeconfig.json and deps.json files must be
-# shipped alongside it. To produce a build that runs without a preinstalled
-# runtime, see the self-contained publish command in README.md.
+# .NET Desktop Runtime. The whole bin directory is shipped because Avalonia
+# needs its own assemblies plus the native Skia/HarfBuzz libraries under
+# runtimes/ -- packaging only the executables produces a build that cannot
+# start. To produce a build that runs without a preinstalled runtime, see the
+# self-contained publish command in README.md.
 after_build:
   - set TZ=GMT
   - git log . > git-log.txt
-  - 7z a -r -tzip -mx=9 -x!*/LICENSE.txt SteamAchievementManager-%APPVEYOR_BUILD_VERSION%.zip ./LICENSE.txt ./git-log.txt ./bin/*.exe ./bin/*.dll ./bin/*.runtimeconfig.json ./bin/*.deps.json
+  - 7z a -r -tzip -mx=9 -x!*/LICENSE.txt -x!*.pdb SteamAchievementManager-%APPVEYOR_BUILD_VERSION%.zip ./LICENSE.txt ./git-log.txt ./bin/
 
 artifacts:
   - path: '*-*.zip'
