@@ -48,9 +48,18 @@ namespace SAM.Picker.Views
             if (this._ViewModel != null)
             {
                 this._ViewModel.ErrorRaised += this.OnErrorRaised;
+                this._ViewModel.SettingsRequested += this.OnSettingsRequested;
             }
 
             base.OnDataContextChanged(e);
+        }
+
+        private async System.Threading.Tasks.Task<AppSettings> OnSettingsRequested(AppSettings current)
+        {
+            SettingsViewModel viewModel = new(current);
+            SettingsWindow window = new() { DataContext = viewModel };
+            var accepted = await window.ShowDialog<bool>(this);
+            return accepted == true ? viewModel.ToSettings() : null;
         }
 
         protected override void OnClosed(System.EventArgs e)
@@ -58,6 +67,7 @@ namespace SAM.Picker.Views
             if (this._ViewModel != null)
             {
                 this._ViewModel.ErrorRaised -= this.OnErrorRaised;
+                this._ViewModel.SettingsRequested -= this.OnSettingsRequested;
                 this._ViewModel.Shutdown();
             }
             base.OnClosed(e);

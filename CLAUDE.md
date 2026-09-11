@@ -321,6 +321,43 @@ All of this was validated against the live API (`RequestUserStats` +
 Civilization V at 64/286. If you change the parsing, re-validate the same way rather than
 eyeballing it; a plausible-looking wrong number here is worse than no number.
 
+### The cache (`~/.sam`)
+
+The picker no longer starts empty. `GameCache` (SQLite, via `Microsoft.Data.Sqlite`) holds
+the owned game list and its stats; `IconCache` holds the downloaded capsules, one `.img`
+file per app id. Both default under `~/.sam` and are relocatable from the Settings dialog.
+
+Startup order matters and is deliberate:
+
+1. `LoadFromCache()` runs **synchronously** in the constructor. It is pure database reads,
+   so the window is painted with games before any network or Steam work starts.
+2. `HydrateCachedIconsAsync()` decodes the on-disk capsules on a background thread.
+3. `RefreshLibraryAsync()` re-downloads the published list, re-checks ownership, refreshes
+   stats, and then `SaveCacheAsync()` writes it back.
+
+Do not turn step 1 into an `async` call — the whole point is that it completes before the
+first frame.
+
+`LoadGamesAsync` **merges** into `_Games` rather than clearing and rebuilding. The cached
+entries already on screen carry decoded bitmaps and the user's own rating; replacing them
+wholesale blanks the window and re-downloads every capsule. `GameCache.Sync` is the
+counterpart on the database side: one transaction that upserts what is owned and deletes
+what is not, so a crash mid-sync cannot leave a half-written library.
+
+Two details worth keeping:
+
+- **Dispose the cache before moving it.** SQLite's WAL leaves `-wal` and `-shm` sidecars
+  open; `GameCache.MoveTo` closes the connection, calls `SqliteConnection.ClearAllPools()`,
+  moves all three files, and reopens. Skipping the pool clear leaves the file locked on
+  Windows.
+- **`SQLitePCLRaw.bundle_e_sqlite3` is pinned to 2.1.13** in `SAM.Picker.csproj`.
+  `Microsoft.Data.Sqlite` 10.0.1 otherwise resolves 2.1.11, which carries
+  GHSA-2m69-gcr7-jv3q. Do not drop the pin to tidy the file.
+
+Settings live at a fixed `~/.sam/settings.json` — they cannot live under the configurable
+database directory, because that is the path they would have to be read to find. The file
+is only written once something changes; its absence means defaults.
+
 ### The stats schema
 
 `ManagerViewModel.LoadUserGameStatsSchema` parses

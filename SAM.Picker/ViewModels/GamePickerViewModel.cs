@@ -76,6 +76,11 @@ namespace SAM.Picker.ViewModels
 
         private readonly LibraryStats _LibraryStats;
 
+        private readonly AppSettings _Settings;
+        private GameCache _Cache;
+        private IconCache _IconCache;
+        private string _CacheError;
+
         private bool _IsContentView;
         /// <summary>
         /// False shows the tile grid (large capsule + name), true shows one row
@@ -210,6 +215,85 @@ namespace SAM.Picker.ViewModels
 
         #endregion
 
+        #region Settings
+
+        /// <summary>
+        /// Asks the view to show the settings dialog; returns the accepted
+        /// settings, or null if the user cancelled.
+        /// </summary>
+        public event Func<AppSettings, Task<AppSettings>> SettingsRequested;
+
+        [RelayCommand]
+        private async Task OpenSettingsAsync()
+        {
+            if (this.SettingsRequested == null)
+            {
+                return;
+            }
+
+            var updated = await this.SettingsRequested(this._Settings.Clone());
+            if (updated == null)
+            {
+                return;
+            }
+
+            await this.ApplySettingsAsync(updated);
+        }
+
+        /// <summary>
+        /// Applies new cache locations, moving the existing data across. The
+        /// database is closed first because SQLite keeps its WAL sidecars open.
+        /// </summary>
+        private async Task ApplySettingsAsync(AppSettings updated)
+        {
+            var databaseMoved = string.Equals(
+                updated.DatabasePath, this._Settings.DatabasePath, StringComparison.OrdinalIgnoreCase) == false;
+            var iconsMoved = string.Equals(
+                updated.IconCachePath, this._Settings.IconCachePath, StringComparison.OrdinalIgnoreCase) == false;
+
+            if (databaseMoved == false && iconsMoved == false)
+            {
+                return;
+            }
+
+            try
+            {
+                if (databaseMoved == true && this._Cache != null)
+                {
+                    var cache = this._Cache;
+                    var destination = updated.DatabasePath;
+                    this._Cache = await Task.Run(() => GameCache.MoveTo(cache, destination));
+                }
+                else if (databaseMoved == true)
+                {
+                    this._Settings.DatabasePath = updated.DatabasePath;
+                    this.OpenCache();
+                }
+
+                if (iconsMoved == true)
+                {
+                    var icons = this._IconCache;
+                    var destination = updated.IconCachePath;
+                    await Task.Run(() => icons.MoveTo(destination));
+                }
+            }
+            catch (Exception e)
+            {
+                this.ErrorRaised?.Invoke("Could not move the cache to the new location:\n" + e.Message);
+                return;
+            }
+
+            this._Settings.DatabasePath = updated.DatabasePath;
+            this._Settings.IconCachePath = updated.IconCachePath;
+
+            if (this._Settings.Save() == false)
+            {
+                this.ErrorRaised?.Invoke("The new locations are in use for this session but could not be saved.");
+            }
+        }
+
+        #endregion
+
         #region Own rating
 
         [RelayCommand]
@@ -311,22 +395,102 @@ namespace SAM.Picker.ViewModels
 
             this._LibraryStats = LibraryStats.Create(client.SteamUser.GetSteamId());
 
+            this._Settings = AppSettings.Load();
+            this._IconCache = new(this._Settings.IconCachePath);
+            this.OpenCache();
+
             // The WinForms build pumped callbacks from a Forms.Timer; the
             // dispatcher timer is the direct equivalent and keeps callbacks on
             // the UI thread, which the rest of this class assumes.
             this._CallbackTimer = new(TimeSpan.FromMilliseconds(200), DispatcherPriority.Background, this.OnTimer);
             this._CallbackTimer.Start();
 
+            // Cached rows are loaded synchronously so the window has content
+            // the moment it is shown; everything that touches the network or
+            // Steam happens afterwards, in the background.
+            this.LoadFromCache();
+
             // Discards are spelled out here because `using static
             // InvariantShorthand` puts a method named `_` in scope.
             Task logoWorker = this.RunLogoWorkerAsync();
-            Task initialLoad = this.LoadGamesAsync();
-            GC.KeepAlive((logoWorker, initialLoad));
+            Task icons = this.HydrateCachedIconsAsync();
+            Task initialLoad = this.RefreshLibraryAsync();
+            GC.KeepAlive((logoWorker, icons, initialLoad));
+        }
+
+        private void OpenCache()
+        {
+            try
+            {
+                this._Cache = GameCache.Open(this._Settings.DatabasePath);
+            }
+            catch (Exception e)
+            {
+                // A cache that will not open must not stop the app; it just
+                // means every start is a cold one.
+                this._Cache = null;
+                this._CacheError = e.Message;
+            }
+        }
+
+        /// <summary>
+        /// Paints the window from the database before any network or Steam work
+        /// happens. Everything here is already-persisted data.
+        /// </summary>
+        private void LoadFromCache()
+        {
+            if (this._Cache == null)
+            {
+                this.StatusText = this._CacheError == null
+                    ? "Loading games..."
+                    : $"Cache unavailable ({this._CacheError}); loading from Steam...";
+                return;
+            }
+
+            List<CachedGame> rows;
+            try
+            {
+                rows = this._Cache.LoadAll();
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            foreach (var row in rows)
+            {
+                GameInfo info = new(row.Id, row.Type ?? "normal")
+                {
+                    Name = row.Name,
+                    ImageUrl = row.ImageUrl,
+                    ReleaseDate = row.ReleaseDate,
+                    SteamRatingPercent = row.RatingPercent,
+                    SteamRatingScore = row.RatingScore,
+                    OwnRating = this._RatingStore.Get(row.Id),
+                };
+                if (row.HasStats == true)
+                {
+                    info.Stats = new GameStats(
+                        row.PlaytimeMinutes,
+                        row.AchievementsTotal,
+                        row.AchievementsEarned,
+                        row.LastPlayed);
+                }
+                this._Games[row.Id] = info;
+            }
+
+            if (this._Games.Count > 0)
+            {
+                this.RefreshGames();
+                this.StatusText = $"Showing {this._Games.Count} cached games. Refreshing...";
+            }
         }
 
         public void Shutdown()
         {
             this._CallbackTimer.Stop();
+            this._Cache?.Dispose();
+            this._Cache = null;
         }
 
         private void OnTimer(object sender, EventArgs e)
@@ -354,7 +518,106 @@ namespace SAM.Picker.ViewModels
         private async Task RefreshAsync()
         {
             this.AddGameText = "";
+            await this.RefreshLibraryAsync();
+        }
+
+        /// <summary>
+        /// Brings the cache up to date: re-reads the published list, re-checks
+        /// ownership, refreshes stats, then writes the result back so the next
+        /// start is instant. Runs after the cached view is already on screen.
+        /// </summary>
+        private async Task RefreshLibraryAsync()
+        {
             await this.LoadGamesAsync();
+            await this.SaveCacheAsync();
+        }
+
+        private async Task SaveCacheAsync()
+        {
+            if (this._Cache == null)
+            {
+                return;
+            }
+
+            var rows = this._Games.Values.Select(info => new CachedGame()
+            {
+                Id = info.Id,
+                Type = info.Type,
+                Name = info.Name,
+                ImageUrl = info.ImageUrl,
+                ReleaseDate = info.ReleaseDate,
+                RatingPercent = info.SteamRatingPercent,
+                RatingScore = info.SteamRatingScore,
+                PlaytimeMinutes = info.Stats?.PlaytimeMinutes ?? 0,
+                LastPlayed = info.Stats?.LastPlayed,
+                AchievementsTotal = info.Stats?.AchievementsTotal ?? -1,
+                AchievementsEarned = info.Stats?.AchievementsEarned ?? -1,
+                HasStats = info.Stats.HasValue,
+            }).ToList();
+
+            var owned = this._Games.Keys.ToHashSet();
+            var cache = this._Cache;
+            var icons = this._IconCache;
+
+            try
+            {
+                // Rows for games no longer owned are deleted here, and their
+                // cached capsules go with them.
+                await Task.Run(() =>
+                {
+                    cache.Sync(rows);
+                    icons.Prune(owned);
+                });
+            }
+            catch (Exception e)
+            {
+                this.ErrorRaised?.Invoke("Could not update the game cache:\n" + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// Decodes capsules already on disk, off the UI thread, so a warm start
+        /// shows art without touching the network.
+        /// </summary>
+        private async Task HydrateCachedIconsAsync()
+        {
+            var games = this._Games.Values.Where(g => g.Logo == null).ToList();
+            if (games.Count == 0)
+            {
+                return;
+            }
+
+            var icons = this._IconCache;
+            var decoded = await Task.Run(() =>
+            {
+                Dictionary<uint, Bitmap> result = new();
+                foreach (var info in games)
+                {
+                    var bytes = icons.TryRead(info.Id);
+                    if (bytes == null)
+                    {
+                        continue;
+                    }
+                    try
+                    {
+                        using MemoryStream stream = new(bytes, false);
+                        result[info.Id] = new Bitmap(stream);
+                    }
+                    catch (Exception)
+                    {
+                        // A truncated cache file just means a re-download.
+                    }
+                }
+                return result;
+            });
+
+            foreach (var info in games)
+            {
+                if (decoded.TryGetValue(info.Id, out var bitmap) == true)
+                {
+                    info.Logo = bitmap;
+                }
+            }
         }
 
         private async Task LoadGamesAsync()
@@ -384,9 +647,9 @@ namespace SAM.Picker.ViewModels
             // over the whole published list, so they cannot run on the UI
             // thread. The WinForms build ran them on a BackgroundWorker for the
             // same reason.
-            var games = await Task.Run(() =>
+            var owned = await Task.Run(() =>
             {
-                Dictionary<uint, GameInfo> result = new();
+                Dictionary<uint, (string Type, string Name)> result = new();
                 foreach (var kv in pairs)
                 {
                     if (result.ContainsKey(kv.Key) == true)
@@ -397,19 +660,31 @@ namespace SAM.Picker.ViewModels
                     {
                         continue;
                     }
-                    GameInfo info = new(kv.Key, kv.Value)
-                    {
-                        Name = this._SteamClient.SteamApps001.GetAppData(kv.Key, "name"),
-                    };
-                    result.Add(kv.Key, info);
+                    result.Add(kv.Key, (kv.Value, this._SteamClient.SteamApps001.GetAppData(kv.Key, "name")));
                 }
                 return result;
             });
 
-            this._Games.Clear();
-            foreach (var kv in games)
+            // Merge rather than rebuild: the cached entries already on screen
+            // carry decoded capsules and the user's own rating, and replacing
+            // them wholesale would blank the window and re-download everything.
+            foreach (var id in this._Games.Keys.Where(id => owned.ContainsKey(id) == false).ToList())
             {
-                this._Games.Add(kv.Key, kv.Value);
+                this._Games.Remove(id);
+            }
+
+            foreach (var kv in owned)
+            {
+                if (this._Games.TryGetValue(kv.Key, out var existing) == true)
+                {
+                    existing.Name = kv.Value.Name;
+                    continue;
+                }
+                this._Games[kv.Key] = new GameInfo(kv.Key, kv.Value.Type)
+                {
+                    Name = kv.Value.Name,
+                    OwnRating = this._RatingStore.Get(kv.Key),
+                };
             }
 
             this.RefreshGames();
@@ -689,6 +964,30 @@ namespace SAM.Picker.ViewModels
                     continue;
                 }
 
+                if (info.Logo != null)
+                {
+                    // Hydrated from the disk cache while this was queued.
+                    continue;
+                }
+
+                // Disk before network: a warm cache means no request at all.
+                var icons = this._IconCache;
+                var appId = info.Id;
+                var cached = await Task.Run(() => icons.TryRead(appId));
+                if (cached != null)
+                {
+                    try
+                    {
+                        using MemoryStream stream = new(cached, false);
+                        info.Logo = new Bitmap(stream);
+                        continue;
+                    }
+                    catch (Exception)
+                    {
+                        // Fall through and re-download a corrupt cache entry.
+                    }
+                }
+
                 this.DownloadStatusText = $"Downloading {1 + this._LogoQueue.Count} game icons...";
                 this.IsDownloadStatusVisible = true;
 
@@ -699,6 +998,7 @@ namespace SAM.Picker.ViewModels
                     // Avalonia's Bitmap copies the decoded pixels, so unlike
                     // System.Drawing it does not need the stream kept alive.
                     info.Logo = new Bitmap(stream);
+                    await Task.Run(() => icons.Write(appId, data));
                 }
                 catch (Exception)
                 {

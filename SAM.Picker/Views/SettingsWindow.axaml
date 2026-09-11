@@ -1,0 +1,56 @@
+﻿<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SAM.Picker.ViewModels"
+        x:Class="SAM.Picker.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Icon="/SAM.ico"
+        Width="620"
+        SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="Settings">
+
+  <StackPanel Margin="18" Spacing="16">
+
+    <TextBlock Text="Cache locations"
+               FontWeight="SemiBold"
+               FontSize="15" />
+
+    <TextBlock TextWrapping="Wrap"
+               Opacity="0.75"
+               Text="The game list and its statistics are cached in a SQLite database so the picker can open straight away. Changing a location here moves the existing data to the new one." />
+
+    <StackPanel Spacing="6">
+      <TextBlock Text="Game database" />
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+        <TextBox Grid.Column="0" Text="{Binding DatabasePath}" />
+        <Button Grid.Column="1" Content="Browse…" Command="{Binding BrowseDatabaseCommand}" />
+      </Grid>
+    </StackPanel>
+
+    <StackPanel Spacing="6">
+      <TextBlock Text="Icon cache folder" />
+      <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
+        <TextBox Grid.Column="0" Text="{Binding IconCachePath}" />
+        <Button Grid.Column="1" Content="Browse…" Command="{Binding BrowseIconsCommand}" />
+      </Grid>
+    </StackPanel>
+
+    <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+      <Button Grid.Column="0"
+              Content="Restore defaults"
+              Command="{Binding RestoreDefaultsCommand}" />
+      <Button Grid.Column="2"
+              Content="Save"
+              MinWidth="88"
+              IsDefault="True"
+              Command="{Binding SaveCommand}" />
+      <Button Grid.Column="3"
+              Content="Cancel"
+              MinWidth="88"
+              IsCancel="True"
+              Command="{Binding CancelCommand}" />
+    </Grid>
+
+  </StackPanel>
+</Window>
