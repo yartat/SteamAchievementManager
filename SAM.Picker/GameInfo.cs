@@ -58,7 +58,81 @@ namespace SAM.Picker
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(PlaytimeText))]
         [NotifyPropertyChangedFor(nameof(AchievementsText))]
+        [NotifyPropertyChangedFor(nameof(LastPlayedText))]
         private GameStats? _Stats;
+
+        /// <summary>Steam's community review score as a percentage positive.</summary>
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(SteamRatingText))]
+        [NotifyPropertyChangedFor(nameof(SteamRatingTooltip))]
+        private int? _SteamRatingPercent;
+
+        /// <summary>Steam's 1-9 review band, used for the descriptive tooltip.</summary>
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(SteamRatingTooltip))]
+        private int? _SteamRatingScore;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ReleaseDateText))]
+        private DateTime? _ReleaseDate;
+
+        /// <summary>
+        /// The user's own like/dislike. SAM-local; see <see cref="OwnRating"/>.
+        /// </summary>
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsLiked))]
+        [NotifyPropertyChangedFor(nameof(IsDisliked))]
+        private OwnRating _OwnRating;
+
+        public bool IsLiked => this.OwnRating == OwnRating.Like;
+        public bool IsDisliked => this.OwnRating == OwnRating.Dislike;
+
+        public DateTime? LastPlayed => this.Stats?.LastPlayed;
+
+        public string LastPlayedText =>
+            this.Stats.HasValue == true && this.Stats.Value.LastPlayed.HasValue == true
+                ? this.Stats.Value.LastPlayed.Value.ToString("d MMM yyyy", CultureInfo.CurrentCulture)
+                : "—";
+
+        public string ReleaseDateText =>
+            this.ReleaseDate.HasValue == true
+                ? this.ReleaseDate.Value.ToString("d MMM yyyy", CultureInfo.CurrentCulture)
+                : "—";
+
+        public string SteamRatingText =>
+            this.SteamRatingPercent.HasValue == true
+                ? this.SteamRatingPercent.Value.ToString(CultureInfo.CurrentCulture) + "%"
+                : "—";
+
+        public string SteamRatingTooltip
+        {
+            get
+            {
+                if (this.SteamRatingPercent.HasValue == false)
+                {
+                    return "No Steam review data cached for this game";
+                }
+                var band = DescribeScore(this.SteamRatingScore);
+                return band == null
+                    ? $"{this.SteamRatingPercent.Value}% of Steam reviews are positive"
+                    : $"{band} — {this.SteamRatingPercent.Value}% of Steam reviews are positive";
+            }
+        }
+
+        /// <summary>Steam's published mapping for its 1-9 review score band.</summary>
+        private static string DescribeScore(int? score) => score switch
+        {
+            9 => "Overwhelmingly Positive",
+            8 => "Very Positive",
+            7 => "Positive",
+            6 => "Mostly Positive",
+            5 => "Mixed",
+            4 => "Mostly Negative",
+            3 => "Negative",
+            2 => "Very Negative",
+            1 => "Overwhelmingly Negative",
+            _ => null,
+        };
 
         public string PlaytimeText
         {

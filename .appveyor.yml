@@ -45,16 +45,23 @@ dotnet_csproj:
 build_script:
   - dotnet build SAM.sln -c Release -v minimal
 
-# Framework-dependent output: the .exe will not start without the matching
-# .NET Desktop Runtime. The whole bin directory is shipped because Avalonia
-# needs its own assemblies plus the native Skia/HarfBuzz libraries under
-# runtimes/ -- packaging only the executables produces a build that cannot
-# start. To produce a build that runs without a preinstalled runtime, see the
-# self-contained publish command in README.md.
+# One framework-dependent bundle per target. Both executables publish into the
+# same folder because they launch each other by path. Only the x86/x64 targets
+# can actually load Steam's client library -- the arm64 bundles are published
+# for completeness and report an explanatory error on launch. See README.md.
 after_build:
-  - set TZ=GMT
-  - git log . > git-log.txt
-  - 7z a -r -tzip -mx=9 -x!*/LICENSE.txt -x!*.pdb SteamAchievementManager-%APPVEYOR_BUILD_VERSION%.zip ./LICENSE.txt ./git-log.txt ./bin/
+  - ps: |
+      $ErrorActionPreference = 'Stop'
+      $env:TZ = 'GMT'
+      git log . > git-log.txt
+      $rids = 'win-x64','win-x86','win-arm64','linux-x64','linux-arm64','osx-x64','osx-arm64'
+      foreach ($rid in $rids) {
+        $out = "publish\$rid"
+        dotnet publish SAM.Picker\SAM.Picker.csproj -c Release -r $rid --self-contained false -o $out -v minimal
+        dotnet publish SAM.Game\SAM.Game.csproj   -c Release -r $rid --self-contained false -o $out -v minimal
+        Copy-Item LICENSE.txt, git-log.txt $out
+        7z a -r -tzip -mx=9 -x!*.pdb "SteamAchievementManager-$env:APPVEYOR_BUILD_VERSION-$rid.zip" ".\$out\*"
+      }
 
 artifacts:
   - path: '*-*.zip'

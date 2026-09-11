@@ -18,14 +18,15 @@
     <RepositoryType>Git</RepositoryType>
   </PropertyGroup>
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Plain net10.0, not net10.0-windows: the interop is now written against
+         NativeLibrary rather than kernel32, and the registry lookup is guarded
+         by OperatingSystem.IsWindows(). Microsoft.Win32.Registry is part of the
+         shared framework here, so no package reference is needed. -->
+    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Platforms>x86;AnyCPU</Platforms>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Platform)'=='x86'">
-    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
-    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <Optimize>True</Optimize>

@@ -29,9 +29,50 @@ in file headers.
 `SAM.Game.exe` with no arguments re-launches `SAM.Picker.exe`. Both executables refuse to
 run from the Steam install directory (see `Program.cs` in each).
 
-All three target **`net10.0-windows`**, `Platforms=x86;AnyCPU`. The SDK version is pinned
-in `global.json` — do not remove it, or builds drift onto whatever preview SDK is
-installed.
+All three target **`net10.0`** — plain, not `net10.0-windows`. The SDK version is pinned in
+`global.json`; do not remove it, or builds drift onto whatever preview SDK is installed.
+
+## Platform support
+
+The managed code is portable. What is not portable is **Steam's own client library**, which
+SAM loads into its own process — so the process architecture and the library architecture
+must match, and Valve only ships x86/x64 builds.
+
+| Target | Steam client library | Works? |
+|---|---|---|
+| `win-x64` | `steamclient64.dll` | **Verified** |
+| `win-x86` | `steamclient.dll` | **Verified** |
+| `linux-x64` | `linux64/steamclient.so` | **Builds and runs** (Debian 13, WSL2); Steam interop untested |
+| `osx-x64` | `steamclient.dylib` | Builds; **untested** |
+| `win-arm64` | none — Valve ships no ARM client | Builds, cannot load Steam |
+| `linux-arm64` | none | Builds, cannot load Steam |
+| `osx-arm64` | none | Builds, cannot load Steam |
+
+The ARM64 bundles exist so the build matrix is complete, and
+`SteamPlatform.IsArchitectureSupported` makes them fail at startup with an explanation
+rather than a misleading "Steam is not running". On Arm hardware the **x64** bundle is the
+one to run — Windows on Arm and Rosetta 2 emulate it, and they are emulating the Steam
+client itself anyway. Do not "fix" the ARM builds by loosening that check; the limitation
+is Valve's, not SAM's.
+
+Only the Windows paths have been exercised against a real Steam client. On Linux the build,
+the launch and `SteamPlatform`'s discovery logic are verified (Debian 13 under WSL2), but
+no `steamclient.so` was ever loaded, so the interop itself is still unproven there. The
+macOS lists are written from Steam's documented layouts and have never been run.
+
+### Linux runtime prerequisites
+
+A framework-dependent build needs more than the .NET runtime: Avalonia's Skia and X11
+backends dlopen system libraries that a minimal Debian does not ship. Found empirically by
+launching the app on a bare Debian 13 and fixing one `DllNotFoundException` at a time:
+
+```bash
+apt-get install -y libfontconfig1 libice6 libsm6
+```
+
+`libfontconfig1` is needed before `libSkiaSharp` will load at all; `libice6`/`libsm6` are
+needed by `Avalonia.X11`'s session management. With those three the app starts cleanly.
+Package these as documented dependencies for any Linux release.
 
 ## Build
 
@@ -39,24 +80,53 @@ installed.
 dotnet build SAM.sln -c Release
 ```
 
-Executables land in `bin/`, for both Debug and Release. The `x86` platform
-(`-p:Platform=x86`) sets `RuntimeIdentifier=win-x86` and produces a genuine 32-bit
-apphost; the default `AnyCPU` build produces a 64-bit one. That distinction is load-bearing
-— see [Bitness](#bitness).
+Executables land in `bin/` (64-bit). `-p:Platform=x86` builds 32-bit into **`bin/x86/`**.
+
+`RuntimeIdentifier` defaults to `$(NETCoreSdkPortableRuntimeIdentifier)` — the *host's* RID
+— so a plain build on Linux or macOS produces an apphost for that machine. Do not hardcode
+`win-x64` as the default: an earlier revision did, and `dotnet build` on Debian happily
+emitted a `SAM.Picker.exe` PE32+ binary with Windows `.dll` natives.
+
+**The two platforms must not share an output directory.** With a pinned RID the native
+Skia/HarfBuzz libraries are copied flat next to the executable rather than into
+`runtimes/<rid>/native/`, so an x86 build and an x64 build writing to the same folder
+silently overwrite each other's natives — and the survivor dies at startup with
+`The version of the native libSkiaSharp library (88.1) is incompatible`, which is really an
+architecture mismatch wearing a version-number disguise. That is why `OutputPath` is
+conditioned on `$(Platform)`.
+
+To produce a bundle for a specific target, publish rather than build — both executables must
+land in the same folder because they launch each other by path:
+
+```bash
+dotnet publish SAM.Picker/SAM.Picker.csproj -c Release -r linux-x64 --self-contained false -o publish/linux-x64
+dotnet publish SAM.Game/SAM.Game.csproj    -c Release -r linux-x64 --self-contained false -o publish/linux-x64
+```
 
 A framework-dependent build needs the .NET 10 Desktop Runtime present to run. `bin/` must
-therefore ship `.exe`, `.dll`, `.runtimeconfig.json`, `.deps.json`, the Avalonia and
-Skia assemblies **and** the `runtimes/` subdirectory that carries `libSkiaSharp` and
-`libHarfBuzzSharp`. Shipping only the `.exe` files produces something that will not start.
+therefore ship `.exe`, `.dll`, `.runtimeconfig.json`, `.deps.json` and the native
+`libSkiaSharp` / `libHarfBuzzSharp` / `av_libglesv2` DLLs. Shipping only the `.exe` files
+produces something that will not start.
+
+**Both exe projects pin a `RuntimeIdentifier`** (`win-x64`, or `win-x86` on the x86
+platform) with `AppendRuntimeIdentifierToOutputPath=false`. Do not remove this. Without a
+RID, a framework-dependent build copies the native assets for *every* RID that Avalonia and
+Skia ship — Linux, musl, macOS, Android, riscv, loongarch — which came to **562 MB** in
+`bin/`, made the release artifact unusable, and caused the two projects to race each other
+copying identical files into the shared output directory. With the RID pinned it is 128 MB,
+of which ~100 MB is native `.pdb` symbols that the CI zip strips (`-x!*.pdb`), leaving a
+release around 27 MB. `AppendRuntimeIdentifierToOutputPath=false` matters because the two
+executables launch each other by path and must stay in the same flat directory.
 
 There are **no tests** in this repository and no test framework is referenced.
 
 ## Running
 
-Requires the Steam client installed, running, and logged in. SAM reads
-`HKLM\Software\Valve\Steam\InstallPath` to find `steamclient.dll`; without a live Steam
-process `Client.Initialize` throws `ClientInitializeException`. You cannot meaningfully
-exercise this code in CI or a sandbox — changes to interop must be tested by hand.
+Requires the Steam client installed, running, and logged in. On Windows SAM reads
+`HKLM\Software\Valve\Steam\InstallPath`; elsewhere it walks the candidate directories in
+`SteamPlatform.GetUnixInstallCandidates`. Without a live Steam process
+`Client.Initialize` throws `ClientInitializeException`. You cannot meaningfully exercise
+this code in CI or a sandbox — changes to interop must be tested by hand.
 
 ## Architecture
 
@@ -64,10 +134,13 @@ exercise this code in CI or a sandbox — changes to interop must be tested by h
 
 This is the part that matters. Everything else is ordinary WinForms.
 
-1. `Steam.Load()` (`SAM.API/Steam.cs`) resolves the Steam install path from the registry,
-   calls `SetDllDirectory`, then `LoadLibraryEx`s `steamclient64.dll` or `steamclient.dll`
-   depending on `Environment.Is64BitProcess`. It then binds three exports:
-   `CreateInterface`, `Steam_BGetCallback`, `Steam_FreeLastCallback`.
+1. `Steam.Load()` (`SAM.API/Steam.cs`) asks `SteamPlatform` for the install path and the
+   candidate library paths for this OS and bitness, then loads the first one that exists
+   with `NativeLibrary.TryLoad` and binds three exports via `NativeLibrary.TryGetExport`:
+   `CreateInterface`, `Steam_BGetCallback`, `Steam_FreeLastCallback`. There is no
+   `kernel32` P/Invoke any more — `NativeLibrary` maps to `LoadLibraryEx`/`dlopen` per OS
+   and resolves the library's own dependencies, which is what the old `SetDllDirectory`
+   call was doing.
 
 ### Bitness
 
@@ -76,6 +149,12 @@ On .NET Framework, `AnyCPU` executables defaulted to `Prefer32Bit`, so SAM alway
 means a 64-bit process loading `steamclient64.dll`. The `Environment.Is64BitProcess` branch
 handles it, but it means the default build now talks to a different Steam binary than it
 used to. If something works in the `x86` configuration and not in `AnyCPU`, this is why.
+
+Calling conventions are *not* a portability problem here, despite appearances.
+`CallingConvention.ThisCall` is only meaningful on **Windows x86**; Microsoft's interop
+documentation is explicit that on x64, ARM and ARM64 there is a single calling convention
+and the attribute is ignored. Since every wrapper already passes the object pointer as an
+explicit first argument, the same declarations are correct on every target.
 2. `Steam.CreateInterface<T>("SteamClient018")` returns a raw `IntPtr` to a C++ object.
 3. `NativeWrapper<TFunctions>.SetupFunctions` (`SAM.API/NativeWrapper.cs`) treats that
    pointer as a `NativeClass` (one field: `VirtualTable`), then
@@ -139,6 +218,14 @@ Both apps follow the same Avalonia shape, and it is worth knowing before editing
   `ErrorRaised` / `MessageRaised` / `ConfirmRequested` and the window handles them.
 - Bindings are compiled (`AvaloniaUseCompiledBindingsByDefault`), so every `DataTemplate`
   needs an `x:DataType` and binding typos are build errors rather than silent no-ops.
+  **This is not the same as the XAML being verified.** A `Grid.ColumnDefinitions` fed from
+  an `x:String` resource compiled cleanly and then threw `InvalidCastException` at window
+  construction. A green build does not mean the window opens — run it.
+- **Do not bind `ToggleButton.IsChecked` to view-model state.** A `ToggleButton` flips its
+  own `IsChecked` on click, which fights the binding and leaves the button showing a state
+  that was never saved. The like/dislike buttons are plain `Button`s with
+  `Classes.liked="{Binding IsLiked}"` and a style selector doing the colouring, so the view
+  model stays the single owner of the value.
 - Images are `Avalonia.Media.Imaging.Bitmap`. Unlike `System.Drawing.Bitmap` it copies the
   decoded pixels, so the source stream can be disposed immediately — which is why the old
   "bitmap outlives its MemoryStream" bug does not exist in the ported code.
@@ -157,6 +244,10 @@ The Fugue set used for the rest of the toolbar has no grid or list glyph, and a 
 inherits the theme foreground so it stays legible in dark mode — which the PNG icons do
 not. Follow that precedent for any further UI-state icons.
 
+Content columns are: capsule, name, release date, last played, Steam rating, achievements,
+and the user's own like/dislike. Headers are buttons that set the sort; clicking the active
+field reverses it. The toolbar `SplitButton` does the same and also covers tile view.
+
 Where the numbers come from matters, because the obvious approach does not work:
 
 **`ISteamUserStats` is scoped to the one app id the process was initialised with.** That is
@@ -174,8 +265,22 @@ problem.
   `AchievementTimes` subkey. Earned is the popcount of `data` masked to the bits the
   schema defines for that block. (Counting `AchievementTimes` entries gives the same
   answer, but the bitfield is the authoritative field.)
-- **Playtime** — `userdata/<accountid>/config/localconfig.vdf`, at
-  `UserLocalConfigStore/Software/Valve/Steam/apps/<appid>/Playtime`, in **minutes**.
+- **Playtime and last played** — `userdata/<accountid>/config/localconfig.vdf`, at
+  `UserLocalConfigStore/Software/Valve/Steam/apps/<appid>/`, as `Playtime` (in **minutes**)
+  and `LastPlayed` (unix seconds).
+- **Steam rating and release date** — `SteamApps001.GetAppData`, keys `review_percentage`
+  (percent positive), `review_score` (Steam's 1-9 band, used for the tooltip wording) and
+  `steam_release_date` (unix seconds). Measured coverage across this library: review data
+  ~98%, release date ~91%. These are Steam calls, so they run on the background pass with
+  the file reads, not on the UI thread.
+- **The user's own like/dislike is *not* from Steam.** Steam keeps review recommendations
+  server-side and exposes them only through the Web API, which needs a key SAM does not
+  have. `RatingStore` persists SAM's own value to
+  `%LOCALAPPDATA%\SteamAchievementManager\ratings.json`. Nothing is ever sent to Steam.
+  Do not relabel this as "Steam rating" in the UI — it would be a lie to the user.
+  Caveat: the whole file is rewritten on each change, so two picker instances running at
+  once will clobber each other's ratings. Acceptable for a single-instance desktop tool;
+  worth knowing if that ever changes.
 
 Two things to keep in mind when touching this:
 

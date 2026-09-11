@@ -111,6 +111,142 @@ namespace SAM.Picker.ViewModels
             this.IsContentView = true;
         }
 
+        #region Sorting
+
+        private readonly RatingStore _RatingStore = RatingStore.Load();
+
+        private GameSortField _SortField = GameSortField.Name;
+        public GameSortField SortField
+        {
+            get => this._SortField;
+            set
+            {
+                if (this.SetProperty(ref this._SortField, value) == true)
+                {
+                    this.OnPropertyChanged(nameof(this.SortDescriptionText));
+                    this.RefreshGames();
+                }
+            }
+        }
+
+        private bool _SortDescending;
+        public bool SortDescending
+        {
+            get => this._SortDescending;
+            set
+            {
+                if (this.SetProperty(ref this._SortDescending, value) == true)
+                {
+                    this.OnPropertyChanged(nameof(this.SortDescriptionText));
+                    this.RefreshGames();
+                }
+            }
+        }
+
+        public string SortDescriptionText => this.SortField switch
+        {
+            GameSortField.ReleaseDate => "Released",
+            GameSortField.LastPlayed => "Last played",
+            GameSortField.SteamRating => "Steam rating",
+            GameSortField.OwnRating => "My rating",
+            _ => "Name",
+        };
+
+        /// <summary>
+        /// Clicking the field already being sorted by flips the direction,
+        /// which is what a list header is expected to do.
+        /// </summary>
+        [RelayCommand]
+        private void SortBy(GameSortField field)
+        {
+            if (this.SortField == field)
+            {
+                this.SortDescending = this.SortDescending == false;
+                return;
+            }
+            // Dates and ratings are far more useful highest-first.
+            this._SortDescending = field != GameSortField.Name;
+            this.OnPropertyChanged(nameof(this.SortDescending));
+            this.SortField = field;
+        }
+
+        [RelayCommand]
+        private void ToggleSortDirection()
+        {
+            this.SortDescending = this.SortDescending == false;
+        }
+
+        private IEnumerable<GameInfo> ApplySort(IEnumerable<GameInfo> games)
+        {
+            // Name is always the tie-breaker so the order is stable and
+            // predictable when a key is missing for many games.
+            return this.SortField switch
+            {
+                GameSortField.ReleaseDate => this.SortDescending == true
+                    ? games.OrderByDescending(g => g.ReleaseDate ?? DateTime.MinValue).ThenBy(g => g.Name)
+                    : games.OrderBy(g => g.ReleaseDate ?? DateTime.MaxValue).ThenBy(g => g.Name),
+                GameSortField.LastPlayed => this.SortDescending == true
+                    ? games.OrderByDescending(g => g.LastPlayed ?? DateTime.MinValue).ThenBy(g => g.Name)
+                    : games.OrderBy(g => g.LastPlayed ?? DateTime.MaxValue).ThenBy(g => g.Name),
+                GameSortField.SteamRating => this.SortDescending == true
+                    ? games.OrderByDescending(g => g.SteamRatingPercent ?? -1).ThenBy(g => g.Name)
+                    : games.OrderBy(g => g.SteamRatingPercent ?? int.MaxValue).ThenBy(g => g.Name),
+                GameSortField.OwnRating => this.SortDescending == true
+                    ? games.OrderByDescending(g => RatingOrder(g.OwnRating)).ThenBy(g => g.Name)
+                    : games.OrderBy(g => RatingOrder(g.OwnRating)).ThenBy(g => g.Name),
+                _ => this.SortDescending == true
+                    ? games.OrderByDescending(g => g.Name)
+                    : games.OrderBy(g => g.Name),
+            };
+        }
+
+        private static int RatingOrder(OwnRating rating) => rating switch
+        {
+            OwnRating.Like => 2,
+            OwnRating.None => 1,
+            OwnRating.Dislike => 0,
+            _ => 1,
+        };
+
+        #endregion
+
+        #region Own rating
+
+        [RelayCommand]
+        private void ToggleLike(GameInfo info)
+        {
+            this.SetOwnRating(info, info?.OwnRating == OwnRating.Like ? OwnRating.None : OwnRating.Like);
+        }
+
+        [RelayCommand]
+        private void ToggleDislike(GameInfo info)
+        {
+            this.SetOwnRating(info, info?.OwnRating == OwnRating.Dislike ? OwnRating.None : OwnRating.Dislike);
+        }
+
+        private void SetOwnRating(GameInfo info, OwnRating rating)
+        {
+            if (info == null)
+            {
+                return;
+            }
+
+            info.OwnRating = rating;
+
+            if (this._RatingStore.Set(info.Id, rating) == false)
+            {
+                this.ErrorRaised?.Invoke(
+                    "Your rating was applied for this session but could not be saved to disk.");
+            }
+
+            if (this.SortField == GameSortField.OwnRating)
+            {
+                this.RefreshGames();
+            }
+        }
+
+        #endregion
+
         private string _SearchText = "";
         public string SearchText
         {
@@ -291,29 +427,65 @@ namespace SAM.Picker.ViewModels
         /// </summary>
         private async Task LoadLibraryStatsAsync()
         {
-            if (this._LibraryStats == null)
+            var games = this._Games.Values.ToList();
+
+            // Own ratings are already in memory; apply them before anything
+            // that might sort on them.
+            foreach (var info in games)
             {
-                return;
+                info.OwnRating = this._RatingStore.Get(info.Id);
             }
 
-            var games = this._Games.Values.ToList();
-            var stats = await Task.Run(() =>
+            // Both halves are slow for a few hundred games: file I/O for the
+            // caches, and two Steam calls per app for the store metadata.
+            var loaded = await Task.Run(() =>
             {
-                Dictionary<uint, GameStats?> result = new();
+                Dictionary<uint, (GameStats? Stats, int? Percent, int? Score, DateTime? Released)> result = new();
                 foreach (var info in games)
                 {
-                    result[info.Id] = this._LibraryStats.TryGet(info.Id);
+                    var stats = this._LibraryStats?.TryGet(info.Id);
+                    result[info.Id] = (
+                        stats,
+                        ParseInt(this._SteamClient.SteamApps001.GetAppData(info.Id, "review_percentage")),
+                        ParseInt(this._SteamClient.SteamApps001.GetAppData(info.Id, "review_score")),
+                        ParseUnixDate(this._SteamClient.SteamApps001.GetAppData(info.Id, "steam_release_date")));
                 }
                 return result;
             });
 
             foreach (var info in games)
             {
-                if (stats.TryGetValue(info.Id, out var value) == true)
+                if (loaded.TryGetValue(info.Id, out var value) == false)
                 {
-                    info.Stats = value;
+                    continue;
                 }
+                info.Stats = value.Stats;
+                info.SteamRatingPercent = value.Percent;
+                info.SteamRatingScore = value.Score;
+                info.ReleaseDate = value.Released;
             }
+
+            if (this.SortField != GameSortField.Name)
+            {
+                this.RefreshGames();
+            }
+        }
+
+        private static int? ParseInt(string value)
+        {
+            return string.IsNullOrEmpty(value) == false &&
+                   int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                ? parsed
+                : null;
+        }
+
+        private static DateTime? ParseUnixDate(string value)
+        {
+            return string.IsNullOrEmpty(value) == false &&
+                   long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds) &&
+                   seconds > 0
+                ? DateTimeOffset.FromUnixTimeSeconds(seconds).LocalDateTime
+                : null;
         }
 
         private static List<KeyValuePair<uint, string>> ParseGameList(byte[] bytes)
@@ -357,7 +529,7 @@ namespace SAM.Picker.ViewModels
             var nameSearch = this.SearchText.Length > 0 ? this.SearchText : null;
 
             this.FilteredGames.Clear();
-            foreach (var info in this._Games.Values.OrderBy(gi => gi.Name))
+            foreach (var info in this.ApplySort(this._Games.Values))
             {
                 if (nameSearch != null &&
                     info.Name.IndexOf(nameSearch, StringComparison.OrdinalIgnoreCase) < 0)
@@ -434,8 +606,10 @@ namespace SAM.Picker.ViewModels
 
             try
             {
+                // The apphost has no extension outside Windows.
+                var manager = OperatingSystem.IsWindows() == true ? "SAM.Game.exe" : "SAM.Game";
                 Process.Start(
-                    Path.Combine(AppContext.BaseDirectory, "SAM.Game.exe"),
+                    Path.Combine(AppContext.BaseDirectory, manager),
                     info.Id.ToString(CultureInfo.InvariantCulture));
             }
             catch (Exception)

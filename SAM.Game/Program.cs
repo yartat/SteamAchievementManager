@@ -47,7 +47,9 @@ namespace SAM.Game
         {
             if (args.Length == 0)
             {
-                Process.Start(Path.Combine(AppContext.BaseDirectory, "SAM.Picker.exe"));
+                // The apphost has no extension outside Windows.
+                var picker = OperatingSystem.IsWindows() == true ? "SAM.Picker.exe" : "SAM.Picker";
+                Process.Start(Path.Combine(AppContext.BaseDirectory, picker));
                 return;
             }
 

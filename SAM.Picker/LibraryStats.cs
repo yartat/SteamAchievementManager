@@ -35,12 +35,14 @@ namespace SAM.Picker
         public readonly int PlaytimeMinutes;
         public readonly int AchievementsTotal;
         public readonly int AchievementsEarned;
+        public readonly DateTime? LastPlayed;
 
-        public GameStats(int playtimeMinutes, int achievementsTotal, int achievementsEarned)
+        public GameStats(int playtimeMinutes, int achievementsTotal, int achievementsEarned, DateTime? lastPlayed)
         {
             this.PlaytimeMinutes = playtimeMinutes;
             this.AchievementsTotal = achievementsTotal;
             this.AchievementsEarned = achievementsEarned;
+            this.LastPlayed = lastPlayed;
         }
     }
 
@@ -70,11 +72,23 @@ namespace SAM.Picker
     /// </remarks>
     internal sealed class LibraryStats
     {
+        private readonly struct LocalPlay
+        {
+            public readonly int Minutes;
+            public readonly DateTime? LastPlayed;
+
+            public LocalPlay(int minutes, DateTime? lastPlayed)
+            {
+                this.Minutes = minutes;
+                this.LastPlayed = lastPlayed;
+            }
+        }
+
         private readonly string _StatsPath;
         private readonly string _AccountId;
-        private readonly Dictionary<uint, int> _Playtime;
+        private readonly Dictionary<uint, LocalPlay> _Playtime;
 
-        private LibraryStats(string statsPath, string accountId, Dictionary<uint, int> playtime)
+        private LibraryStats(string statsPath, string accountId, Dictionary<uint, LocalPlay> playtime)
         {
             this._StatsPath = statsPath;
             this._AccountId = accountId;
@@ -99,9 +113,9 @@ namespace SAM.Picker
                 LoadPlaytime(installPath, accountId));
         }
 
-        private static Dictionary<uint, int> LoadPlaytime(string installPath, string accountId)
+        private static Dictionary<uint, LocalPlay> LoadPlaytime(string installPath, string accountId)
         {
-            Dictionary<uint, int> result = new();
+            Dictionary<uint, LocalPlay> result = new();
 
             var path = Path.Combine(installPath, "userdata", accountId, "config", "localconfig.vdf");
             if (File.Exists(path) == false)
@@ -122,11 +136,20 @@ namespace SAM.Picker
                 {
                     continue;
                 }
+
                 var minutes = kv.Value["Playtime"].AsInteger(0);
-                if (minutes > 0)
+                var lastPlayed = kv.Value["LastPlayed"].AsInteger(0);
+
+                if (minutes <= 0 && lastPlayed <= 0)
                 {
-                    result[appId] = minutes;
+                    continue;
                 }
+
+                result[appId] = new(
+                    minutes,
+                    lastPlayed > 0
+                        ? DateTimeOffset.FromUnixTimeSeconds(lastPlayed).LocalDateTime
+                        : null);
             }
 
             return result;
@@ -135,16 +158,18 @@ namespace SAM.Picker
         public GameStats? TryGet(uint appId)
         {
             var schema = this.LoadSchemaBits(appId, out var total);
-            this._Playtime.TryGetValue(appId, out var playtime);
+            this._Playtime.TryGetValue(appId, out var play);
 
             if (schema == null)
             {
                 // No schema cached: playtime alone is still worth reporting.
-                return playtime > 0 ? new GameStats(playtime, -1, -1) : null;
+                return play.Minutes > 0 || play.LastPlayed.HasValue == true
+                    ? new GameStats(play.Minutes, -1, -1, play.LastPlayed)
+                    : null;
             }
 
             var earned = this.CountEarned(appId, schema);
-            return new(playtime, total, earned);
+            return new(play.Minutes, total, earned, play.LastPlayed);
         }
 
         /// <summary>stat block id -&gt; bitmask of achievement bits the schema defines.</summary>

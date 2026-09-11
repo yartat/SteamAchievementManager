@@ -13,7 +13,8 @@
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>Blank.ico</ApplicationIcon>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The manifest only means anything to the Windows loader. -->
+    <ApplicationManifest Condition="'$(RuntimeIdentifier)'=='' or $(RuntimeIdentifier.StartsWith('win'))">app.manifest</ApplicationManifest>
   </PropertyGroup>
   <PropertyGroup>
     <RepositoryUrl>https://github.com/gibbed/SteamAchievementManager/</RepositoryUrl>
@@ -21,16 +22,27 @@
   </PropertyGroup>
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Platforms>x86;AnyCPU</Platforms>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <OutputPath>..\bin\</OutputPath>
+    <!-- See the matching comment in SAM.Picker.csproj: x86 and x64 cannot share
+         an output folder once the native libraries are copied flat. -->
+    <OutputPath Condition="'$(Platform)'=='x86'">..\bin\x86\</OutputPath>
+    <OutputPath Condition="'$(Platform)'!='x86'">..\bin\</OutputPath>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RuntimeIdentifiers>win-x64;win-x86;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Platform)'=='x86'">
-    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+  <!-- See the matching comment in SAM.Picker.csproj: pinning a RID is what
+       keeps bin\ from filling with every platform's native Skia/HarfBuzz. -->
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(Platform)'=='x86' and $([MSBuild]::IsOSPlatform('Windows'))">win-x86</RuntimeIdentifier>
+    <!-- See SAM.Picker.csproj: default to the host RID so a plain build on
+         Linux or macOS produces a native apphost rather than a Windows one. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)'==''">$(NETCoreSdkPortableRuntimeIdentifier)</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">

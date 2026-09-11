@@ -13,7 +13,8 @@
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>SAM.ico</ApplicationIcon>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- The manifest only means anything to the Windows loader. -->
+    <ApplicationManifest Condition="'$(RuntimeIdentifier)'=='' or $(RuntimeIdentifier.StartsWith('win'))">app.manifest</ApplicationManifest>
   </PropertyGroup>
   <PropertyGroup>
     <RepositoryUrl>https://github.com/gibbed/SteamAchievementManager/</RepositoryUrl>
@@ -21,16 +22,39 @@
   </PropertyGroup>
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <LangVersion>latest</LangVersion>
     <Platforms>x86;AnyCPU</Platforms>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <OutputPath>..\bin\</OutputPath>
+    <!-- x86 gets its own directory. With a pinned RID the native Skia/HarfBuzz
+         libraries are copied flat next to the exe rather than into
+         runtimes/<rid>/, so an x86 and an x64 build sharing one output folder
+         silently overwrite each other's natives and the survivor crashes on
+         startup with an architecture mismatch. -->
+    <OutputPath Condition="'$(Platform)'=='x86'">..\bin\x86\</OutputPath>
+    <OutputPath Condition="'$(Platform)'!='x86'">..\bin\</OutputPath>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Every target SAM can be published for. Only the x86/x64 ones can
+         actually load Steam's client; see SteamPlatform for why the ARM ones
+         are built but report an explanatory error at startup. -->
+    <RuntimeIdentifiers>win-x64;win-x86;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Platform)'=='x86'">
-    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+  <!-- SAM is Windows-only (registry lookup + steamclient.dll), so pin a RID.
+       Without one, a framework-dependent build copies every RID's native
+       assets that Avalonia/Skia ship - Linux, musl, macOS, Android, riscv -
+       which came to over 500 MB in bin\ and made the release artifact
+       useless. AppendRuntimeIdentifierToOutputPath keeps bin\ flat, which
+       matters because SAM.Game.exe and SAM.Picker.exe launch each other by
+       path from the same directory. -->
+  <PropertyGroup>
+    <RuntimeIdentifier Condition="'$(Platform)'=='x86' and $([MSBuild]::IsOSPlatform('Windows'))">win-x86</RuntimeIdentifier>
+    <!-- Default to the host's own RID, not a hardcoded win-x64: an explicit -r
+         on the command line still wins, but a plain `dotnet build` on Linux or
+         macOS must produce an apphost for *that* machine. -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)'==''">$(NETCoreSdkPortableRuntimeIdentifier)</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">

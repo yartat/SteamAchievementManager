@@ -23,31 +23,16 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
-using Microsoft.Win32;
 
 namespace SAM.API
 {
     public static class Steam
     {
-        private struct Native
-        {
-            [DllImport("kernel32.dll", SetLastError = true, BestFitMapping = false, ThrowOnUnmappableChar = true)]
-            internal static extern IntPtr GetProcAddress(IntPtr module, string name);
-
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-            internal static extern IntPtr LoadLibraryEx(string path, IntPtr file, uint flags);
-
-            [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            internal static extern bool SetDllDirectory(string path);
-
-            internal const uint LoadWithAlteredSearchPath = 8;
-        }
-
         private static Delegate GetExportDelegate<TDelegate>(IntPtr module, string name)
         {
-            IntPtr address = Native.GetProcAddress(module, name);
-            return address == IntPtr.Zero ? null : Marshal.GetDelegateForFunctionPointer(address, typeof(TDelegate));
+            return NativeLibrary.TryGetExport(module, name, out var address) == false
+                ? null
+                : Marshal.GetDelegateForFunctionPointer(address, typeof(TDelegate));
         }
 
         private static TDelegate GetExportFunction<TDelegate>(IntPtr module, string name)
@@ -60,7 +45,7 @@ namespace SAM.API
 
         public static string GetInstallPath()
         {
-            return (string)Registry.GetValue(@"HKEY_LOCAL_MACHINE\Software\Valve\Steam", "InstallPath", null);
+            return SteamPlatform.GetInstallPath();
         }
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
@@ -112,16 +97,36 @@ namespace SAM.API
                 return true;
             }
 
-            string path = GetInstallPath();
-            if (path == null)
+            // A native library can only be loaded by a process of the same
+            // architecture, and Valve ships no ARM build of the Steam client.
+            if (SteamPlatform.IsArchitectureSupported == false)
             {
                 return false;
             }
 
-            Native.SetDllDirectory(path + ";" + Path.Combine(path, "bin"));
+            string installPath = GetInstallPath();
+            if (installPath == null)
+            {
+                return false;
+            }
 
-            path = Path.Combine(path, Environment.Is64BitProcess ? "steamclient64.dll" : "steamclient.dll");
-            IntPtr module = Native.LoadLibraryEx(path, IntPtr.Zero, Native.LoadWithAlteredSearchPath);
+            IntPtr module = IntPtr.Zero;
+            foreach (var candidate in SteamPlatform.GetClientLibraryCandidates(installPath))
+            {
+                if (File.Exists(candidate) == false)
+                {
+                    continue;
+                }
+                // NativeLibrary maps to LoadLibraryEx / dlopen as appropriate,
+                // and resolves the library's own dependencies relative to it,
+                // which is what the old SetDllDirectory dance was for.
+                if (NativeLibrary.TryLoad(candidate, out module) == true)
+                {
+                    break;
+                }
+                module = IntPtr.Zero;
+            }
+
             if (module == IntPtr.Zero)
             {
                 return false;

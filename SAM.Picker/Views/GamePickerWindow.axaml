@@ -5,7 +5,7 @@
         x:Class="SAM.Picker.Views.GamePickerWindow"
         x:DataType="vm:GamePickerViewModel"
         Icon="/SAM.ico"
-        Width="900" Height="560"
+        Width="1020" Height="600"
         MinWidth="420" MinHeight="320"
         Title="Steam Achievement Manager 7.0 | Pick a game... Any game...">
 
@@ -15,6 +15,17 @@
          stays legible in both light and dark, which the bitmap icons do not. -->
     <StreamGeometry x:Key="TilesIcon">M1,1 H7 V7 H1 Z M9,1 H15 V7 H9 Z M1,9 H7 V15 H1 Z M9,9 H15 V15 H9 Z</StreamGeometry>
     <StreamGeometry x:Key="ContentIcon">M1,2 H5 V6 H1 Z M7,3 H15 V5 H7 Z M1,9 H5 V13 H1 Z M7,10 H15 V12 H7 Z</StreamGeometry>
+    <StreamGeometry x:Key="SortIcon">M2,3 H14 V5 H2 Z M2,7 H10 V9 H2 Z M2,11 H6 V13 H2 Z</StreamGeometry>
+    <StreamGeometry x:Key="AscendingIcon">M8,2 L13,9 H9.5 V14 H6.5 V9 H3 Z</StreamGeometry>
+    <StreamGeometry x:Key="DescendingIcon">M8,14 L3,7 H6.5 V2 H9.5 V7 H13 Z</StreamGeometry>
+    <StreamGeometry x:Key="LikeIcon">M4,14 V7 H2 V14 Z M6,14 H12 L14,8 V7 H9.5 L10,4 A1.2,1.2 0 0 0 8.5,2.5 L6,7 Z</StreamGeometry>
+    <StreamGeometry x:Key="DislikeIcon">M4,2 V9 H2 V2 Z M6,2 H12 L14,8 V9 H9.5 L10,12 A1.2,1.2 0 0 1 8.5,13.5 L6,9 Z</StreamGeometry>
+
+    <!-- Explicit colours rather than theme accents: these need to read as
+         positive/negative at a glance, and both work on light and dark. -->
+    <SolidColorBrush x:Key="RatingLikeBrush" Color="#2E9E4F" />
+    <SolidColorBrush x:Key="RatingDislikeBrush" Color="#D0453B" />
+
   </Window.Resources>
 
   <DockPanel>
@@ -124,6 +135,41 @@
           </ToggleSplitButton.Flyout>
         </ToggleSplitButton>
 
+        <SplitButton Command="{Binding ToggleSortDirectionCommand}"
+                     ToolTip.Tip="Click to reverse the order; use the arrow to choose a field">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <PathIcon Data="{StaticResource SortIcon}" Width="14" Height="14" />
+            <TextBlock Text="{Binding SortDescriptionText}" VerticalAlignment="Center" />
+            <PathIcon Width="10" Height="10"
+                      Data="{StaticResource AscendingIcon}"
+                      IsVisible="{Binding !SortDescending}" />
+            <PathIcon Width="10" Height="10"
+                      Data="{StaticResource DescendingIcon}"
+                      IsVisible="{Binding SortDescending}" />
+          </StackPanel>
+          <SplitButton.Flyout>
+            <MenuFlyout Placement="BottomEdgeAlignedLeft">
+              <MenuItem Header="Name"
+                        Command="{Binding SortByCommand}"
+                        CommandParameter="{x:Static local:GameSortField.Name}" />
+              <MenuItem Header="Release date"
+                        Command="{Binding SortByCommand}"
+                        CommandParameter="{x:Static local:GameSortField.ReleaseDate}" />
+              <MenuItem Header="Last played"
+                        Command="{Binding SortByCommand}"
+                        CommandParameter="{x:Static local:GameSortField.LastPlayed}" />
+              <MenuItem Header="Steam rating"
+                        Command="{Binding SortByCommand}"
+                        CommandParameter="{x:Static local:GameSortField.SteamRating}" />
+              <MenuItem Header="My rating"
+                        Command="{Binding SortByCommand}"
+                        CommandParameter="{x:Static local:GameSortField.OwnRating}" />
+              <Separator />
+              <MenuItem Header="Reverse order" Command="{Binding ToggleSortDirectionCommand}" />
+            </MenuFlyout>
+          </SplitButton.Flyout>
+        </SplitButton>
+
       </WrapPanel>
     </Border>
 
@@ -181,12 +227,43 @@
     <!-- Content view -->
     <DockPanel IsVisible="{Binding IsContentView}">
       <Border DockPanel.Dock="Top"
-              Padding="6,3"
+              Padding="6,0"
               Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
-        <Grid ColumnDefinitions="60,*,90,110">
-          <TextBlock Grid.Column="1" Text="Name" FontWeight="SemiBold" />
-          <TextBlock Grid.Column="2" Text="Played" FontWeight="SemiBold" TextAlignment="Right" />
-          <TextBlock Grid.Column="3" Text="Achievements" FontWeight="SemiBold" TextAlignment="Right" />
+        <!-- NOTE: these column widths must match the row template below. -->
+        <Grid ColumnDefinitions="56,*,110,110,90,110,80">
+          <!-- Headers double as sort controls; clicking the active one reverses. -->
+          <Grid.Styles>
+            <Style Selector="Button.header">
+              <Setter Property="Background" Value="Transparent" />
+              <Setter Property="BorderThickness" Value="0" />
+              <Setter Property="Padding" Value="4,6" />
+              <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+              <Setter Property="FontWeight" Value="SemiBold" />
+            </Style>
+          </Grid.Styles>
+
+          <Button Grid.Column="1" Classes="header"
+                  Command="{Binding SortByCommand}"
+                  CommandParameter="{x:Static local:GameSortField.Name}"
+                  Content="Name" />
+          <Button Grid.Column="2" Classes="header"
+                  Command="{Binding SortByCommand}"
+                  CommandParameter="{x:Static local:GameSortField.ReleaseDate}"
+                  Content="Released" />
+          <Button Grid.Column="3" Classes="header"
+                  Command="{Binding SortByCommand}"
+                  CommandParameter="{x:Static local:GameSortField.LastPlayed}"
+                  Content="Last played" />
+          <Button Grid.Column="4" Classes="header"
+                  Command="{Binding SortByCommand}"
+                  CommandParameter="{x:Static local:GameSortField.SteamRating}"
+                  Content="Steam" />
+          <TextBlock Grid.Column="5" Text="Achievements"
+                     FontWeight="SemiBold" VerticalAlignment="Center" Margin="4,0" />
+          <Button Grid.Column="6" Classes="header"
+                  Command="{Binding SortByCommand}"
+                  CommandParameter="{x:Static local:GameSortField.OwnRating}"
+                  Content="Mine" />
         </Grid>
       </Border>
 
@@ -198,7 +275,7 @@
                KeyDown="OnGameListKeyDown">
         <ListBox.ItemTemplate>
           <DataTemplate x:DataType="local:GameInfo">
-            <Grid ColumnDefinitions="60,*,90,110" MinHeight="32">
+            <Grid ColumnDefinitions="56,*,110,110,90,110,80" MinHeight="34">
               <Border Grid.Column="0"
                       Width="48" Height="22"
                       HorizontalAlignment="Left"
@@ -212,15 +289,62 @@
                          TextTrimming="CharacterEllipsis"
                          Margin="4,0" />
               <TextBlock Grid.Column="2"
-                         Text="{Binding PlaytimeText}"
+                         Text="{Binding ReleaseDateText}"
                          VerticalAlignment="Center"
-                         TextAlignment="Right"
                          Margin="4,0" />
               <TextBlock Grid.Column="3"
+                         Text="{Binding LastPlayedText}"
+                         VerticalAlignment="Center"
+                         Margin="4,0"
+                         ToolTip.Tip="{Binding PlaytimeText}" />
+              <TextBlock Grid.Column="4"
+                         Text="{Binding SteamRatingText}"
+                         VerticalAlignment="Center"
+                         TextAlignment="Right"
+                         Margin="4,0"
+                         ToolTip.Tip="{Binding SteamRatingTooltip}" />
+              <TextBlock Grid.Column="5"
                          Text="{Binding AchievementsText}"
                          VerticalAlignment="Center"
                          TextAlignment="Right"
                          Margin="4,0" />
+              <!-- Plain Buttons with a bound style class rather than
+                   ToggleButtons: the rating is owned by the view model, and a
+                   ToggleButton flips its own IsChecked on click, which fights
+                   the binding and leaves the displayed state out of sync with
+                   what was actually saved. -->
+              <StackPanel Grid.Column="6"
+                          Orientation="Horizontal"
+                          Spacing="2"
+                          VerticalAlignment="Center"
+                          Margin="4,0">
+                <StackPanel.Styles>
+                  <Style Selector="Button.liked PathIcon">
+                    <Setter Property="Foreground" Value="{StaticResource RatingLikeBrush}" />
+                  </Style>
+                  <Style Selector="Button.disliked PathIcon">
+                    <Setter Property="Foreground" Value="{StaticResource RatingDislikeBrush}" />
+                  </Style>
+                  <Style Selector="Button:not(.liked):not(.disliked) PathIcon">
+                    <Setter Property="Opacity" Value="0.45" />
+                  </Style>
+                </StackPanel.Styles>
+
+                <Button Classes.liked="{Binding IsLiked}"
+                        Padding="5,3"
+                        ToolTip.Tip="I like this game (saved locally by SAM, never sent to Steam)"
+                        Command="{Binding $parent[ListBox].((vm:GamePickerViewModel)DataContext).ToggleLikeCommand}"
+                        CommandParameter="{Binding}">
+                  <PathIcon Data="{StaticResource LikeIcon}" Width="12" Height="12" />
+                </Button>
+                <Button Classes.disliked="{Binding IsDisliked}"
+                        Padding="5,3"
+                        ToolTip.Tip="I do not like this game (saved locally by SAM, never sent to Steam)"
+                        Command="{Binding $parent[ListBox].((vm:GamePickerViewModel)DataContext).ToggleDislikeCommand}"
+                        CommandParameter="{Binding}">
+                  <PathIcon Data="{StaticResource DislikeIcon}" Width="12" Height="12" />
+                </Button>
+              </StackPanel>
             </Grid>
           </DataTemplate>
         </ListBox.ItemTemplate>

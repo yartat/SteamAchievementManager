@@ -50,6 +50,11 @@ namespace SAM.Picker
 
         private Avalonia.Controls.Window CreateMainWindow()
         {
+            if (API.SteamPlatform.IsArchitectureSupported == false)
+            {
+                return MessageWindow.CreateError(API.SteamPlatform.DescribeUnsupportedArchitecture());
+            }
+
             if (Program.IsRunningFromSteamDirectory() == true)
             {
                 return MessageWindow.CreateError("This tool declines to being run from the Steam directory.");
