@@ -42,7 +42,7 @@ must match, and Valve only ships x86/x64 builds.
 |---|---|---|
 | `win-x64` | `steamclient64.dll` | **Verified** |
 | `win-x86` | `steamclient.dll` | **Verified** |
-| `linux-x64` | `linux64/steamclient.so` | **Builds and runs** (Debian 13, WSL2); Steam interop untested |
+| `linux-x64` | `linux64/steamclient.so` | **Verified** against live Steam (Debian 13, WSL2) |
 | `osx-x64` | `steamclient.dylib` | Builds; **untested** |
 | `win-arm64` | none — Valve ships no ARM client | Builds, cannot load Steam |
 | `linux-arm64` | none | Builds, cannot load Steam |
@@ -55,10 +55,11 @@ one to run — Windows on Arm and Rosetta 2 emulate it, and they are emulating t
 client itself anyway. Do not "fix" the ARM builds by loosening that check; the limitation
 is Valve's, not SAM's.
 
-Only the Windows paths have been exercised against a real Steam client. On Linux the build,
-the launch and `SteamPlatform`'s discovery logic are verified (Debian 13 under WSL2), but
-no `steamclient.so` was ever loaded, so the interop itself is still unproven there. The
-macOS lists are written from Steam's documented layouts and have never been run.
+Windows and Linux have both been exercised end to end against a live, logged-in Steam
+client — native build, install-path discovery, `steamclient.so`/`.dll` load, vtable
+dispatch, `LibraryStats`, and the picker showing the real library. Playtime read on Linux
+matched Windows to the minute for every game checked. The macOS candidate lists are
+written from Steam's documented layouts and have never been run.
 
 ### Linux runtime prerequisites
 
@@ -150,11 +151,14 @@ means a 64-bit process loading `steamclient64.dll`. The `Environment.Is64BitProc
 handles it, but it means the default build now talks to a different Steam binary than it
 used to. If something works in the `x86` configuration and not in `AnyCPU`, this is why.
 
-Calling conventions are *not* a portability problem here, despite appearances.
-`CallingConvention.ThisCall` is only meaningful on **Windows x86**; Microsoft's interop
-documentation is explicit that on x64, ARM and ARM64 there is a single calling convention
-and the attribute is ignored. Since every wrapper already passes the object pointer as an
-explicit first argument, the same declarations are correct on every target.
+`CallingConvention.ThisCall` itself is not a portability problem.
+`ThisCall` is only meaningful on **Windows x86**; on x64, ARM and ARM64 there is a single
+calling convention and the attribute is ignored. Since every wrapper passes the object
+pointer as an explicit first argument, those declarations are correct on every target.
+
+**Struct returns are a different story — see invariant #4.** "One calling convention on
+x64" covers how *arguments* are passed; it does not cover how a C++ member function
+*returns a struct by value*, and Windows and System V disagree there.
 2. `Steam.CreateInterface<T>("SteamClient018")` returns a raw `IntPtr` to a C++ object.
 3. `NativeWrapper<TFunctions>.SetupFunctions` (`SAM.API/NativeWrapper.cs`) treats that
    pointer as a `NativeClass` (one field: `VirtualTable`), then
@@ -166,7 +170,7 @@ explicit first argument, the same declarations are correct on every target.
    `[UnmanagedFunctionPointer(CallingConvention.ThisCall)]` with the object pointer passed
    explicitly as the first argument.
 
-### Three invariants you must not break
+### Four invariants you must not break
 
 **1. Vtable struct field order is an ABI contract.** The structs in `SAM.API/Interfaces/`
 (`ISteamClient018`, `ISteamUserStats013`, `ISteamUtils005`, …) mirror the exact layout of
@@ -190,6 +194,28 @@ convention, so every argument shifted by one, Steam returned a null interface, a
 `SetupFunctions` threw a `NullReferenceException` — which is how it finally surfaced, once
 the .NET 10 migration made x64 the default. When adding an accessor, copy the shape of
 `GetISteamUser`, and test in **both** bitnesses; x86 hides this entire class of bug.
+
+**4. A C++ method that returns a struct *by value* needs a per-platform declaration.**
+Windows and System V AMD64 disagree about how that works, and the difference is silent:
+
+- **MSVC x86/x64** returns it through a hidden pointer passed as an extra argument, so the
+  delegate is `void Native(IntPtr self, out T value)`.
+- **System V AMD64** (Linux, macOS) returns a small trivially-copyable struct in RAX, so
+  the delegate is `T Native(IntPtr self)`.
+
+`ISteamUser::GetSteamID()` returns `CSteamID`, a 64-bit POD, and is the one place this
+arises today. With the Windows form used on Linux it does not throw — it reads a slot
+nobody wrote and returns **0**, which then silently poisons everything keyed off the
+account id (`LibraryStats`' playtime and achievement lookups, and
+`RequestUserStats(steamId)` in `SAM.Game`). `SteamUser012.GetSteamId` therefore branches on
+`OperatingSystem.IsWindows()` and caches its delegate locally, because
+`NativeWrapper`'s cache is keyed on the function pointer alone and two delegate types
+sharing one vtable slot would collide.
+
+An audit of the other `out`/`ref` delegates found no further cases: the parameters in
+`CreateLocalUser`, `GetStat`, and `GetImageSize` are genuine C++ pointer arguments, not
+hidden struct returns. If you add a wrapper for a method whose C++ signature returns a
+`struct`/`class` by value, handle both ABIs and verify on both.
 
 ### Callbacks
 
@@ -368,20 +394,26 @@ reintroduced.
 The interop layer itself was **not** rewritten.
 `[UnmanagedFunctionPointer(CallingConvention.ThisCall)]` plus `Delegate.DynamicInvoke` over
 raw vtable slots still compiles and is still the mechanism — and it **works on .NET 10**,
-verified against a live, logged-in Steam client:
+verified against a live, logged-in Steam client on all three supported targets:
 
-| Step | Result |
-|---|---|
-| `Steam.GetInstallPath()` from the registry | OK (identical in the 32- and 64-bit registry views) |
-| `Steam.Load()` — `LoadLibraryEx` + 3 exports | OK — `steamclient64.dll` on x64, `steamclient.dll` on x86 |
-| `CreateInterface("SteamClient018")` + vtable marshal | OK in both bitnesses |
-| `CreateSteamPipe()` / `ConnectToGlobalUser()` | OK |
-| `GetSteamApps001().GetAppData(480, "name")` | OK — returns `Spacewar` |
-| `GetSteamApps008().IsSubscribedApp(480)` | OK |
-| `GetSteamUser012().IsLoggedIn()` | OK |
-| Schema load + achievement/stat read (Terraria, 105600) | OK — 137 achievements, 10 statistics |
+| Step | win-x64 | win-x86 | linux-x64 |
+|---|---|---|---|
+| Install-path discovery | OK | OK | OK (`~/.local/share/Steam`) |
+| `Steam.Load()` + 3 exports | `steamclient64.dll` | `steamclient.dll` | `linux64/steamclient.so` |
+| `CreateInterface` + vtable marshal | OK | OK | OK |
+| `CreateSteamPipe()` / `ConnectToGlobalUser()` | OK | OK | OK |
+| `GetAppData(480/105600, "name")` | `Spacewar` / `Terraria` | same | same |
+| `IsSubscribedApp(480)` / language | True / `english` | same | same |
+| `IsLoggedIn()` | True | True | True |
+| `GetSteamId()` | 765611980067…409 | same | same (after invariant #4 fix) |
+| `LibraryStats` playtime | 6614 / 1356 / 5847 min | identical | identical |
+| SAM.Game on Terraria | 137 achievements, 10 stats | identical | — |
 
-Getting there required fixing the `GetISteamApps` signature described in invariant #3.
+Getting there required fixing the `GetISteamApps` signature (invariant #3) and the
+`GetSteamID` struct-return ABI (invariant #4). Playtime read on Linux matched Windows to
+the minute, and the achievement counts matched wherever both machines had the schema
+cached.
+
 What remains unverified is the **write** path — `SetAchievement`, `SetStatValue`,
 `StoreStats` and `ResetAllStats`. Those mutate a real Steam account, so they were left
 alone deliberately; exercise them by hand on a throwaway title before trusting a release.

@@ -40,7 +40,7 @@ Steam client on any platform.
 |---|---|
 | `win-x64` | Supported and tested |
 | `win-x86` | Supported and tested |
-| `linux-x64` | Builds and launches (verified on Debian 13); talking to Steam not yet tested |
+| `linux-x64` | Supported and tested (Debian 13) |
 | `osx-x64` | Should work; not yet tested |
 | `win-arm64`, `linux-arm64`, `osx-arm64` | Built, but **cannot talk to Steam** |
 
