@@ -4,5 +4,6 @@
              RequestedThemeVariant="Default">
   <Application.Styles>
     <FluentTheme />
+    <StyleInclude Source="/Resources/Icons.axaml" />
   </Application.Styles>
 </Application>

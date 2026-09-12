@@ -7,9 +7,9 @@
     <Copyright>Copyright © Gibbed 2019</Copyright>
   </PropertyGroup>
   <PropertyGroup>
-    <Version>7.0.0</Version>
-    <AssemblyVersion>7.0.0.0</AssemblyVersion>
-    <FileVersion>7.0.0.0</FileVersion>
+    <Version>8.0.0</Version>
+    <AssemblyVersion>8.0.0.0</AssemblyVersion>
+    <FileVersion>8.0.0.0</FileVersion>
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>SAM.ico</ApplicationIcon>
@@ -72,8 +72,19 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
   </ItemGroup>
   <ItemGroup>
-    <AvaloniaResource Include="Resources\**" />
     <AvaloniaResource Include="SAM.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The icon set and its sizing style, shared with the other application so
+         both toolbars cannot drift apart. Linked to Resources/ so the avares
+         path is the same in both assemblies. -->
+    <AvaloniaResource Include="..\Shared\Icons.axaml" Link="Resources\Icons.axaml" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Shared with the other application: both processes read the same
+         ~/.sam/settings.json and write into the same icon directory. Linked
+         rather than moved into SAM.API, which stays package-free. -->
+    <Compile Include="..\Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\SAM.API\SAM.API.csproj" />

@@ -24,6 +24,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using SAM.Picker.ViewModels;
+using SAM.Shared;
 
 namespace SAM.Picker.Views
 {

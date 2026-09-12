@@ -35,16 +35,19 @@ using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SAM.API;
+using SAM.Shared;
 using static SAM.Game.InvariantShorthand;
 using APITypes = SAM.API.Types;
 
 namespace SAM.Game.ViewModels
 {
-    internal sealed partial class ManagerViewModel : ObservableObject
+    internal sealed partial class ManagerViewModel : ProgressViewModel
     {
         private static readonly HttpClient _Http = new();
 
         private readonly long _GameId;
+        private readonly long _AccountId;
+        private readonly string _Language;
         private readonly API.Client _SteamClient;
         private readonly API.Callbacks.UserStatsReceived _UserStatsReceivedCallback;
         private readonly DispatcherTimer _CallbackTimer;
@@ -53,8 +56,21 @@ namespace SAM.Game.ViewModels
         private readonly List<Stats.StatDefinition> _StatDefinitions = new();
 
         private readonly ConcurrentQueue<Stats.AchievementInfo> _IconQueue = new();
+
+        // Queued and finished since the queue last drained, so the bar has a
+        // denominator. UI thread only, like the queue itself.
+        private int _IconsQueued;
+        private int _IconsCompleted;
         private readonly SemaphoreSlim _IconSignal = new(0);
-        private readonly Dictionary<string, Bitmap> _IconCache = new();
+        private readonly Dictionary<string, Bitmap> _IconBitmaps = new();
+
+        /// <summary>The same icon directory the picker keeps its capsules in.</summary>
+        private readonly IconCache _IconCache;
+
+        /// <summary>Null when the database could not be opened; every start is then a cold one.</summary>
+        private AchievementCache _Cache;
+
+        private Task _SaveTask = Task.CompletedTask;
 
         private bool _IsUpdatingAchievementList;
 
@@ -62,16 +78,10 @@ namespace SAM.Game.ViewModels
         public ObservableCollection<Stats.StatInfo> Statistics { get; } = new();
 
         [ObservableProperty]
-        private string _Title = "Steam Achievement Manager 7.0";
+        private string _Title = "Steam Achievement Manager 8.0";
 
         [ObservableProperty]
         private string _StatusText = "";
-
-        [ObservableProperty]
-        private string _DownloadStatusText = "";
-
-        [ObservableProperty]
-        private bool _IsDownloadStatusVisible;
 
         [ObservableProperty]
         private bool _IsInputEnabled = true;
@@ -141,8 +151,17 @@ namespace SAM.Game.ViewModels
             this._GameId = gameId;
             this._SteamClient = client;
 
+            // The cache files are keyed by the 32-bit account id, the same way
+            // Steam's own on-disk stats caches are.
+            this._AccountId = (long)(client.SteamUser.GetSteamId() & 0xFFFFFFFFUL);
+            this._Language = client.SteamApps008.GetCurrentGameLanguage();
+
+            var settings = AppSettings.Load();
+            this._IconCache = new(settings.IconCachePath);
+            this.OpenCache(settings.DatabasePath);
+
             var name = client.SteamApps001.GetAppData((uint)gameId, "name");
-            this.Title = "Steam Achievement Manager 7.0 | " +
+            this.Title = "Steam Achievement Manager 8.0 | " +
                 (name ?? gameId.ToString(CultureInfo.InvariantCulture));
 
             this._UserStatsReceivedCallback = client.CreateAndRegisterCallback<API.Callbacks.UserStatsReceived>();
@@ -155,11 +174,31 @@ namespace SAM.Game.ViewModels
             GC.KeepAlive(iconWorker);
 
             this.RefreshStats();
+
+            // RefreshStats only asks; the answer arrives on the callback timer.
+            // Until it does, show what was cached last time rather than an empty
+            // window. Input stays disabled, so nothing can be committed from it.
+            this.LoadFromCache();
+        }
+
+        private void OpenCache(string databasePath)
+        {
+            try
+            {
+                this._Cache = AchievementCache.Open(databasePath);
+            }
+            catch (Exception)
+            {
+                // A cache that will not open must not stop the app.
+                this._Cache = null;
+            }
         }
 
         public void Shutdown()
         {
             this._CallbackTimer.Stop();
+            this._Cache?.Dispose();
+            this._Cache = null;
         }
 
         private void OnTimer(object sender, EventArgs e)
@@ -180,6 +219,7 @@ namespace SAM.Game.ViewModels
             if (param.Result != 1)
             {
                 this.StatusText = $"Error while retrieving stats: {TranslateError(param.Result)}";
+                this.EndProgress();
                 this.IsInputEnabled = true;
                 return;
             }
@@ -187,6 +227,7 @@ namespace SAM.Game.ViewModels
             if (this.LoadUserGameStatsSchema() == false)
             {
                 this.StatusText = "Failed to load schema.";
+                this.EndProgress();
                 this.IsInputEnabled = true;
                 return;
             }
@@ -198,6 +239,7 @@ namespace SAM.Game.ViewModels
             catch (Exception e)
             {
                 this.StatusText = "Error when handling achievements retrieval.";
+                this.EndProgress();
                 this.IsInputEnabled = true;
                 this.MessageRaised?.Invoke("Error when handling achievements retrieval:\n" + e, false);
                 return;
@@ -210,14 +252,140 @@ namespace SAM.Game.ViewModels
             catch (Exception e)
             {
                 this.StatusText = "Error when handling stats retrieval.";
+                this.EndProgress();
                 this.IsInputEnabled = true;
                 this.MessageRaised?.Invoke("Error when handling stats retrieval:\n" + e, false);
                 return;
             }
 
+            this.SaveCache();
+
+            this.EndProgress();
             this.StatusText =
                 $"Retrieved {this.Achievements.Count} achievements and {this.Statistics.Count} statistics.";
             this.IsInputEnabled = true;
+        }
+
+        /// <summary>
+        /// Paints the achievement list from the database before Steam has
+        /// answered. Everything here is already-persisted data.
+        /// </summary>
+        private void LoadFromCache()
+        {
+            if (this._Cache == null)
+            {
+                return;
+            }
+
+            List<CachedAchievement> rows;
+            try
+            {
+                rows = this._Cache.Load(this._AccountId, this._GameId, this._Language);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            if (rows.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var row in rows)
+            {
+                Stats.AchievementInfo info = new()
+                {
+                    Id = row.Id,
+                    IsAchieved = row.IsAchieved,
+                    OriginalValue = row.IsAchieved,
+                    UnlockTime = row.UnlockTime,
+                    // Same fallback GetAchievements applies: a game with no
+                    // separate greyed-out icon reuses the normal one.
+                    IconNormal = string.IsNullOrEmpty(row.IconNormal) ? null : row.IconNormal,
+                    IconLocked = string.IsNullOrEmpty(row.IconLocked) ? row.IconNormal : row.IconLocked,
+                    Permission = row.Permission,
+                    Name = row.Name,
+                    Description = row.Description,
+                };
+
+                info.PropertyChanged += this.OnAchievementPropertyChanged;
+                this.Achievements.Add(info);
+                this.EnqueueIcon(info);
+            }
+
+            this.StatusText = $"Showing {rows.Count} cached achievements. Refreshing...";
+        }
+
+        /// <summary>
+        /// Writes the full achievement list back, off the UI thread. Built from
+        /// the definitions rather than from <see cref="Achievements"/>, which is
+        /// whatever the filters last left on screen.
+        /// </summary>
+        private void SaveCache()
+        {
+            if (this._Cache == null || this._AchievementDefinitions.Count == 0)
+            {
+                return;
+            }
+
+            List<CachedAchievement> rows = new(this._AchievementDefinitions.Count);
+            foreach (var def in this._AchievementDefinitions)
+            {
+                if (string.IsNullOrEmpty(def.Id) == true)
+                {
+                    continue;
+                }
+
+                if (this._SteamClient.SteamUserStats.GetAchievementAndUnlockTime(
+                    def.Id,
+                    out bool isAchieved,
+                    out var unlockTime) == false)
+                {
+                    continue;
+                }
+
+                rows.Add(new()
+                {
+                    Id = def.Id,
+                    Name = def.Name,
+                    Description = def.Description,
+                    IconNormal = def.IconNormal,
+                    IconLocked = def.IconLocked,
+                    Permission = def.Permission,
+                    IsAchieved = isAchieved,
+                    UnlockTime = isAchieved == true && unlockTime > 0
+                        ? DateTimeOffset.FromUnixTimeSeconds(unlockTime).LocalDateTime
+                        : null,
+                });
+            }
+
+            if (rows.Count == 0)
+            {
+                return;
+            }
+
+            var cache = this._Cache;
+            var accountId = this._AccountId;
+            var gameId = this._GameId;
+            var language = this._Language;
+
+            // Chained rather than fired off: a SqliteConnection cannot serve two
+            // commands at once, and hitting Refresh twice in a row would
+            // otherwise overlap two writes on this one.
+            this._SaveTask = this._SaveTask.ContinueWith(
+                previous =>
+                {
+                    try
+                    {
+                        cache.Sync(accountId, gameId, language, rows);
+                    }
+                    catch (Exception)
+                    {
+                        // A cache that cannot be written is a slow app, not a broken one.
+                    }
+                },
+                TaskScheduler.Default);
         }
 
         private void RefreshStats()
@@ -237,6 +405,7 @@ namespace SAM.Game.ViewModels
             }
 
             this.StatusText = "Retrieving stat information...";
+            this.BeginProgress("Waiting for Steam...");
             this.IsInputEnabled = false;
         }
 
@@ -290,7 +459,9 @@ namespace SAM.Game.ViewModels
                 return false;
             }
 
-            var currentLanguage = this._SteamClient.SteamApps008.GetCurrentGameLanguage();
+            // The same value the cache is keyed on, so cached text and freshly
+            // parsed text are always in the same language.
+            var currentLanguage = this._Language;
 
             this._AchievementDefinitions.Clear();
             this._StatDefinitions.Clear();
@@ -775,14 +946,42 @@ namespace SAM.Game.ViewModels
                 return;
             }
 
-            if (this._IconCache.TryGetValue(iconName, out var cached) == true)
+            if (this._IconBitmaps.TryGetValue(iconName, out var cached) == true)
             {
                 info.Icon = cached;
                 return;
             }
 
+            if (this._IconsQueued == 0)
+            {
+                this.BeginProgress("Loading achievement icons...");
+            }
+
             this._IconQueue.Enqueue(info);
+            this._IconsQueued++;
             this._IconSignal.Release();
+        }
+
+        /// <summary>
+        /// False for a truncated cache file or a reply that is not an image, in
+        /// which case the caller falls through to a download.
+        /// </summary>
+        private bool TryDecodeIcon(string iconName, byte[] data, Stats.AchievementInfo info)
+        {
+            try
+            {
+                using MemoryStream stream = new(data, false);
+                // Avalonia's Bitmap copies the decoded pixels, so unlike
+                // System.Drawing it does not need the stream kept alive.
+                Bitmap bitmap = new(stream);
+                this._IconBitmaps[iconName] = bitmap;
+                info.Icon = bitmap;
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
 
         private async Task RunIconWorkerAsync()
@@ -796,39 +995,62 @@ namespace SAM.Game.ViewModels
                     continue;
                 }
 
-                var iconName = info.CurrentIconName;
-                if (string.IsNullOrEmpty(iconName) == true)
-                {
-                    continue;
-                }
+                await this.LoadIconAsync(info);
 
-                if (this._IconCache.TryGetValue(iconName, out var cached) == true)
-                {
-                    info.Icon = cached;
-                    continue;
-                }
-
-                this.DownloadStatusText = $"Downloading {1 + this._IconQueue.Count} icons...";
-                this.IsDownloadStatusVisible = true;
-
-                try
-                {
-                    var url = _($"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{this._GameId}/{iconName}");
-                    var data = await _Http.GetByteArrayAsync(new Uri(url));
-                    using MemoryStream stream = new(data, false);
-                    Bitmap bitmap = new(stream);
-                    this._IconCache[iconName] = bitmap;
-                    info.Icon = bitmap;
-                }
-                catch (Exception)
-                {
-                    // A missing icon is not worth surfacing.
-                }
-
+                // Counted here rather than inside LoadIconAsync so that every
+                // way of finishing an item -- no icon, already decoded, read
+                // from disk, downloaded, or failed -- advances the bar by one.
+                this._IconsCompleted++;
                 if (this._IconQueue.IsEmpty == true)
                 {
-                    this.IsDownloadStatusVisible = false;
+                    this.EndProgress();
+                    this._IconsQueued = 0;
+                    this._IconsCompleted = 0;
+                    continue;
                 }
+
+                this.ReportProgress(
+                    $"Loading achievement icons, {this._IconsCompleted:N0} of {this._IconsQueued:N0}...",
+                    this._IconsCompleted,
+                    this._IconsQueued);
+            }
+        }
+
+        private async Task LoadIconAsync(Stats.AchievementInfo info)
+        {
+            var iconName = info.CurrentIconName;
+            if (string.IsNullOrEmpty(iconName) == true)
+            {
+                return;
+            }
+
+            if (this._IconBitmaps.TryGetValue(iconName, out var cached) == true)
+            {
+                info.Icon = cached;
+                return;
+            }
+
+            // Disk before network: a warm cache means no request at all.
+            var icons = this._IconCache;
+            var appId = (uint)this._GameId;
+            var stored = await Task.Run(() => icons.TryRead(appId, iconName));
+            if (stored != null && this.TryDecodeIcon(iconName, stored, info) == true)
+            {
+                return;
+            }
+
+            try
+            {
+                var url = _($"https://cdn.steamstatic.com/steamcommunity/public/images/apps/{this._GameId}/{iconName}");
+                var data = await _Http.GetByteArrayAsync(new Uri(url));
+                if (this.TryDecodeIcon(iconName, data, info) == true)
+                {
+                    await Task.Run(() => icons.Write(appId, iconName, data));
+                }
+            }
+            catch (Exception)
+            {
+                // A missing icon is not worth surfacing.
             }
         }
 

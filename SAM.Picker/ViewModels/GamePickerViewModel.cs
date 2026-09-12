@@ -36,12 +36,13 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SAM.Shared;
 using static SAM.Picker.InvariantShorthand;
 using APITypes = SAM.API.Types;
 
 namespace SAM.Picker.ViewModels
 {
-    internal sealed partial class GamePickerViewModel : ObservableObject
+    internal sealed partial class GamePickerViewModel : ProgressViewModel
     {
         private static readonly HttpClient _Http = new();
 
@@ -52,6 +53,12 @@ namespace SAM.Picker.ViewModels
         private readonly Dictionary<uint, GameInfo> _Games = new();
         private readonly HashSet<string> _LogosAttempted = new();
         private readonly ConcurrentQueue<GameInfo> _LogoQueue = new();
+
+        // How many have been queued and finished since the queue last drained,
+        // so the bar has a denominator. UI thread only: EnqueueLogo is called
+        // from it, and the worker's continuations return to it.
+        private int _LogosQueued;
+        private int _LogosCompleted;
         private readonly SemaphoreSlim _LogoSignal = new(0);
 
         public ObservableCollection<GameInfo> FilteredGames { get; } = new();
@@ -61,12 +68,6 @@ namespace SAM.Picker.ViewModels
 
         [ObservableProperty]
         private string _StatusText = "";
-
-        [ObservableProperty]
-        private string _DownloadStatusText = "";
-
-        [ObservableProperty]
-        private bool _IsDownloadStatusVisible;
 
         [ObservableProperty]
         private string _AddGameText = "";
@@ -588,11 +589,24 @@ namespace SAM.Picker.ViewModels
             }
 
             var icons = this._IconCache;
+            var total = games.Count;
+            var step = ProgressStep(total);
+            IProgress<int> decode = new Progress<int>(
+                done => this.ReportProgress($"Loading cached icons, {done:N0} of {total:N0}...", done, total));
+            this.BeginProgress("Loading cached icons...");
+            this.ReportProgress($"Loading cached icons, 0 of {total:N0}...", 0, total);
+
             var decoded = await Task.Run(() =>
             {
                 Dictionary<uint, Bitmap> result = new();
+                var done = 0;
                 foreach (var info in games)
                 {
+                    done++;
+                    if (done % step == 0)
+                    {
+                        decode.Report(done);
+                    }
                     var bytes = icons.TryRead(info.Id);
                     if (bytes == null)
                     {
@@ -618,12 +632,15 @@ namespace SAM.Picker.ViewModels
                     info.Logo = bitmap;
                 }
             }
+
+            this.EndProgress();
         }
 
         private async Task LoadGamesAsync()
         {
             this.CanRefresh = false;
             this.StatusText = "Downloading game list...";
+            this.BeginProgress("Downloading game list...");
 
             List<KeyValuePair<uint, string>> pairs;
             try
@@ -637,11 +654,20 @@ namespace SAM.Picker.ViewModels
                 this.AddGame(480, "normal"); // Spacewar
                 this.RefreshGames();
                 this.CanRefresh = true;
+                this.EndProgress();
                 this.ErrorRaised?.Invoke(e.ToString());
                 return;
             }
 
             this.StatusText = "Checking game ownership...";
+
+            // Created here, on the UI thread, so its callback marshals back to
+            // the UI thread from inside the Task.Run below.
+            var total = pairs.Count;
+            var step = ProgressStep(total);
+            IProgress<int> sweep = new Progress<int>(
+                done => this.ReportProgress($"Checking ownership, {done:N0} of {total:N0}...", done, total));
+            this.ReportProgress($"Checking ownership, 0 of {total:N0}...", 0, total);
 
             // Ownership and name lookups are Steam client calls, one per app id
             // over the whole published list, so they cannot run on the UI
@@ -650,8 +676,14 @@ namespace SAM.Picker.ViewModels
             var owned = await Task.Run(() =>
             {
                 Dictionary<uint, (string Type, string Name)> result = new();
+                var examined = 0;
                 foreach (var kv in pairs)
                 {
+                    examined++;
+                    if (examined % step == 0)
+                    {
+                        sweep.Report(examined);
+                    }
                     if (result.ContainsKey(kv.Key) == true)
                     {
                         continue;
@@ -689,6 +721,7 @@ namespace SAM.Picker.ViewModels
 
             this.RefreshGames();
             this.CanRefresh = true;
+            this.EndProgress();
 
             await this.LoadLibraryStatsAsync();
         }
@@ -711,13 +744,26 @@ namespace SAM.Picker.ViewModels
                 info.OwnRating = this._RatingStore.Get(info.Id);
             }
 
+            var total = games.Count;
+            var step = ProgressStep(total);
+            IProgress<int> pass = new Progress<int>(
+                done => this.ReportProgress($"Reading library stats, {done:N0} of {total:N0}...", done, total));
+            this.BeginProgress("Reading library stats...");
+            this.ReportProgress($"Reading library stats, 0 of {total:N0}...", 0, total);
+
             // Both halves are slow for a few hundred games: file I/O for the
             // caches, and two Steam calls per app for the store metadata.
             var loaded = await Task.Run(() =>
             {
                 Dictionary<uint, (GameStats? Stats, int? Percent, int? Score, DateTime? Released)> result = new();
+                var done = 0;
                 foreach (var info in games)
                 {
+                    done++;
+                    if (done % step == 0)
+                    {
+                        pass.Report(done);
+                    }
                     var stats = this._LibraryStats?.TryGet(info.Id);
                     result[info.Id] = (
                         stats,
@@ -739,6 +785,8 @@ namespace SAM.Picker.ViewModels
                 info.SteamRatingScore = value.Score;
                 info.ReleaseDate = value.Released;
             }
+
+            this.EndProgress();
 
             if (this.SortField != GameSortField.Name)
             {
@@ -945,7 +993,13 @@ namespace SAM.Picker.ViewModels
                 return;
             }
 
+            if (this._LogosQueued == 0)
+            {
+                this.BeginProgress("Loading game icons...");
+            }
+
             this._LogoQueue.Enqueue(info);
+            this._LogosQueued++;
             this._LogoSignal.Release();
         }
 
@@ -964,51 +1018,65 @@ namespace SAM.Picker.ViewModels
                     continue;
                 }
 
-                if (info.Logo != null)
+                await this.LoadLogoAsync(info);
+
+                // Counted here rather than inside LoadLogoAsync so that every
+                // way of finishing an item -- already loaded, read from disk,
+                // downloaded, or failed -- advances the bar by exactly one.
+                this._LogosCompleted++;
+                if (this._LogoQueue.IsEmpty == true)
                 {
-                    // Hydrated from the disk cache while this was queued.
+                    this.EndProgress();
+                    this._LogosQueued = 0;
+                    this._LogosCompleted = 0;
                     continue;
                 }
 
-                // Disk before network: a warm cache means no request at all.
-                var icons = this._IconCache;
-                var appId = info.Id;
-                var cached = await Task.Run(() => icons.TryRead(appId));
-                if (cached != null)
-                {
-                    try
-                    {
-                        using MemoryStream stream = new(cached, false);
-                        info.Logo = new Bitmap(stream);
-                        continue;
-                    }
-                    catch (Exception)
-                    {
-                        // Fall through and re-download a corrupt cache entry.
-                    }
-                }
+                this.ReportProgress(
+                    $"Loading game icons, {this._LogosCompleted:N0} of {this._LogosQueued:N0}...",
+                    this._LogosCompleted,
+                    this._LogosQueued);
+            }
+        }
 
-                this.DownloadStatusText = $"Downloading {1 + this._LogoQueue.Count} game icons...";
-                this.IsDownloadStatusVisible = true;
+        private async Task LoadLogoAsync(GameInfo info)
+        {
+            if (info.Logo != null)
+            {
+                // Hydrated from the disk cache while this was queued.
+                return;
+            }
 
+            // Disk before network: a warm cache means no request at all.
+            var icons = this._IconCache;
+            var appId = info.Id;
+            var cached = await Task.Run(() => icons.TryRead(appId));
+            if (cached != null)
+            {
                 try
                 {
-                    var data = await _Http.GetByteArrayAsync(new Uri(info.ImageUrl));
-                    using MemoryStream stream = new(data, false);
-                    // Avalonia's Bitmap copies the decoded pixels, so unlike
-                    // System.Drawing it does not need the stream kept alive.
+                    using MemoryStream stream = new(cached, false);
                     info.Logo = new Bitmap(stream);
-                    await Task.Run(() => icons.Write(appId, data));
+                    return;
                 }
                 catch (Exception)
                 {
-                    // A missing capsule image is not worth surfacing.
+                    // Fall through and re-download a corrupt cache entry.
                 }
+            }
 
-                if (this._LogoQueue.IsEmpty == true)
-                {
-                    this.IsDownloadStatusVisible = false;
-                }
+            try
+            {
+                var data = await _Http.GetByteArrayAsync(new Uri(info.ImageUrl));
+                using MemoryStream stream = new(data, false);
+                // Avalonia's Bitmap copies the decoded pixels, so unlike
+                // System.Drawing it does not need the stream kept alive.
+                info.Logo = new Bitmap(stream);
+                await Task.Run(() => icons.Write(appId, data));
+            }
+            catch (Exception)
+            {
+                // A missing capsule image is not worth surfacing.
             }
         }
 

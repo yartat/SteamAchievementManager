@@ -26,6 +26,22 @@ in file headers.
 | `SAM.Picker` | `bin/SAM.Picker.exe` (WinExe) | Entry point. Downloads the app-ID list, filters to games you own, launches `SAM.Game`. Two view modes: tiles and content. |
 | `SAM.Game` | `bin/SAM.Game.exe` (WinExe) | Per-game editor. Takes an app ID argv, reads the stats schema, edits achievements/stats. |
 
+`Shared/` is not a project. It is a handful of files, namespace `SAM.Shared`, linked
+into **both** executables with `<Compile Include="..\Shared\*.cs">` (and
+`<AvaloniaResource Include="..\Shared\Icons.axaml" Link="Resources\Icons.axaml" />`,
+which is what makes the avares path identical in both assemblies):
+
+| File | Why it is shared |
+|---|---|
+| `AppSettings.cs` | both processes read the same `~/.sam/settings.json` |
+| `IconCache.cs` | both write into the same icon directory |
+| `ProgressViewModel.cs` | one status-bar progress indicator, behaving the same in both windows |
+| `Icons.axaml` | one icon set and one style sizing it |
+
+They are linked rather than moved into `SAM.API` because that project stays
+package-free and SQLite is a package. Both assemblies get their own copy of the
+types, which is harmless — they never meet in one process.
+
 `SAM.Game.exe` with no arguments re-launches `SAM.Picker.exe`. Both executables refuse to
 run from the Steam install directory (see `Program.cs` in each).
 
@@ -265,14 +281,55 @@ mode's icon and label and flips to the other mode on click (`IsChecked` is bound
 per game with a small capsule, name, playtime and `earned / total` achievements. Both views
 bind the same `FilteredGames` collection; only `IsVisible` differs.
 
-The two mode glyphs are `PathIcon` geometries declared in `Window.Resources`, not bitmaps.
-The Fugue set used for the rest of the toolbar has no grid or list glyph, and a `PathIcon`
-inherits the theme foreground so it stays legible in dark mode — which the PNG icons do
-not. Follow that precedent for any further UI-state icons.
+The two mode glyphs are `PathIcon` geometries, like every other icon in either
+application — see "Icons" below.
 
 Content columns are: capsule, name, release date, last played, Steam rating, achievements,
 and the user's own like/dislike. Headers are buttons that set the sort; clicking the active
 field reverses it. The toolbar `SplitButton` does the same and also covers tile view.
+
+### Icons
+
+Every icon in both applications is a `StreamGeometry` in `Shared/Icons.axaml`, rendered
+through a `PathIcon`. There are no icon bitmaps left; the Fugue PNGs the toolbars used to
+carry were removed because a `PathIcon` inherits the theme foreground and stays legible in
+dark mode, which they did not, and because two icon mechanisms cannot be sized or coloured
+from one place. **Do not put an `<Image>` in a button.**
+
+Two things about that file are load-bearing:
+
+- **One grid.** Every geometry is drawn on a 16x16 grid with its content spanning roughly
+  1..15. `PathIcon` stretches the geometry's *own bounds* uniformly into `Width` x
+  `Height`, so a glyph drawn on a different grid is silently scaled to a different weight
+  beside its neighbours. `Geometry.Bounds` will not tell you when this has happened —
+  for an arc it reports the endpoint extents, not the swept extents, so `RefreshIcon`
+  measures 8.2 wide and renders 15. Measure the rendered pixels instead.
+- **One style.** `Shared/Icons.axaml` also carries the bare `PathIcon` selector that sizes
+  everything to 14x14, plus `PathIcon.small` at 10 for a glyph that qualifies another
+  rather than standing alone. Add a class there rather than a `Width`/`Height` on the
+  usage, or the toolbars drift apart one button at a time.
+
+It is included by each app as `<StyleInclude Source="/Resources/Icons.axaml" />`. That
+path resolves at **runtime**, not build time: renaming a key or mistyping the source still
+compiles cleanly and only fails when the window opens.
+
+### The status bar
+
+Both windows derive their view model from `Shared/ProgressViewModel.cs` and show the same
+indicator: an icon, a line of text and a `ProgressBar`.
+
+Phases with a known total count out of it; those without — the game-list download, and
+`SAM.Game` waiting on the `RequestUserStats` callback — show the running bar instead.
+Loops that run off the UI thread report through an `IProgress<int>` **created on the UI
+thread**, which is what marshals the callback back; `ProgressStep` throttles them to about
+200 updates so a sweep over tens of thousands of published app ids does not post a message
+per item.
+
+`BeginProgress` and `EndProgress` count jobs rather than flipping a flag, and this matters:
+the picker's startup runs the cached-icon decode, the library refresh and the logo queue at
+once, all reporting into the one indicator. With a flag, the first to finish would take the
+bar down while the other two were still working. Every `BeginProgress` needs a matching
+`EndProgress` on every path, failures included.
 
 Where the numbers come from matters, because the obvious approach does not work:
 
@@ -301,12 +358,17 @@ problem.
   the file reads, not on the UI thread.
 - **The user's own like/dislike is *not* from Steam.** Steam keeps review recommendations
   server-side and exposes them only through the Web API, which needs a key SAM does not
-  have. `RatingStore` persists SAM's own value to
-  `%LOCALAPPDATA%\SteamAchievementManager\ratings.json`. Nothing is ever sent to Steam.
+  have. `RatingStore` persists SAM's own value to `~/.sam/ratings.json`. Nothing is ever
+  sent to Steam.
   Do not relabel this as "Steam rating" in the UI — it would be a lie to the user.
   Caveat: the whole file is rewritten on each change, so two picker instances running at
   once will clobber each other's ratings. Acceptable for a single-instance desktop tool;
   worth knowing if that ever changes.
+  Ratings used to live under %LOCALAPPDATA%\SteamAchievementManager\.
+  `RatingStore.Migrate` moves that file across on first run and is the only thing that
+  looks there; if the move fails it reads them where they are and writes to the new path
+  next time, so a locked or read-only profile loses nothing. Keep it until it is safe to
+  assume nobody is upgrading from a pre-`~/.sam` build.
 
 Two things to keep in mind when touching this:
 
@@ -323,9 +385,27 @@ eyeballing it; a plausible-looking wrong number here is worse than no number.
 
 ### The cache (`~/.sam`)
 
-The picker no longer starts empty. `GameCache` (SQLite, via `Microsoft.Data.Sqlite`) holds
-the owned game list and its stats; `IconCache` holds the downloaded capsules, one `.img`
-file per app id. Both default under `~/.sam` and are relocatable from the Settings dialog.
+Neither window starts empty. One SQLite database and one icon directory serve both
+applications; both default under `~/.sam` and are relocatable from the Settings dialog.
+
+| Store | Owner | Holds |
+|---|---|---|
+| `games` table | `SAM.Picker/GameCache.cs` | the owned game list and its stats |
+| `achievements` table | `SAM.Game/AchievementCache.cs` | one game's achievement list and its unlock state |
+| `<appid>.img` | `Shared/IconCache.cs` | capsule art, one file per app id |
+| `<appid>_<icon>` | `Shared/IconCache.cs` | achievement icons, one file per app id and icon name |
+
+The two processes hold the same database file open at once. That works because the schema
+is created with `journal_mode=WAL` — concurrent readers alongside one writer — and
+`AchievementCache` sets `Default Timeout` so the moment they overlap is a wait rather than
+a `SQLITE_BUSY`. Do not "simplify" either by dropping WAL.
+
+**The achievement icon naming is load-bearing.** `IconCache.Prune` walks the whole
+directory and deletes what belongs to a game that is no longer owned, recovering the app id
+from the file name: the whole stem for a capsule, the part before the first underscore for
+an achievement icon. Name an achievement icon anything else and the picker's next refresh
+silently eats it. Files whose name yields no app id are left alone entirely — the directory
+is user-chosen and may not be ours.
 
 Startup order matters and is deliberate:
 
@@ -350,13 +430,54 @@ Two details worth keeping:
   open; `GameCache.MoveTo` closes the connection, calls `SqliteConnection.ClearAllPools()`,
   moves all three files, and reopens. Skipping the pool clear leaves the file locked on
   Windows.
-- **`SQLitePCLRaw.bundle_e_sqlite3` is pinned to 2.1.13** in `SAM.Picker.csproj`.
-  `Microsoft.Data.Sqlite` 10.0.1 otherwise resolves 2.1.11, which carries
-  GHSA-2m69-gcr7-jv3q. Do not drop the pin to tidy the file.
+- **`SQLitePCLRaw.bundle_e_sqlite3` is pinned to 2.1.13** in `SAM.Picker.csproj` *and*
+  `SAM.Game.csproj`. `Microsoft.Data.Sqlite` 10.0.1 otherwise resolves 2.1.11, which
+  carries GHSA-2m69-gcr7-jv3q. Do not drop either pin to tidy the files.
 
 Settings live at a fixed `~/.sam/settings.json` — they cannot live under the configurable
 database directory, because that is the path they would have to be read to find. The file
-is only written once something changes; its absence means defaults.
+is only written once something changes; its absence means defaults. `~/.sam/ratings.json`
+sits beside it for the same reason: it is per-user data, and it must not move when the
+cache directory does.
+
+So `~/.sam` holds, by default, `settings.json`, `ratings.json`, `games.db` (plus its WAL
+sidecars) and `icons/`. Only the last two are relocatable; the first two are found by
+fixed path or nothing could be found at all.
+
+### The achievement cache (`SAM.Game`)
+
+`SAM.Game` used to show an empty window until Steam answered `RequestUserStats`, then
+download every achievement icon from the CDN one at a time. Both now have a warm path.
+
+Constructor order is deliberate and mirrors the picker:
+
+1. `RefreshStats()` asks Steam. It only *asks* — the answer arrives later, on the callback
+   timer.
+2. `LoadFromCache()` then runs **synchronously**, painting the achievement list from the
+   `achievements` table. It has to come after `RefreshStats()`, which clears the
+   collections.
+3. `OnUserStatsReceived` rebuilds the list from live data and calls `SaveCache()`.
+
+`IsInputEnabled` stays false across that window, so nothing cached can be committed to
+Steam. The cached `IsAchieved` is display only; `OriginalValue` is overwritten from Steam
+before Commit is ever reachable.
+
+Three things that are easy to get wrong here:
+
+- **`SaveCache` builds its rows from `_AchievementDefinitions`, not from `Achievements`.**
+  The latter is whatever the search box and the locked/unlocked toggles last left on
+  screen. Persisting it would write a filtered subset over the whole list.
+- **Rows are keyed by account id *and* language.** Achievement state belongs to whoever was
+  logged in, and the cached name and description are the *localized* strings — so
+  `_Language` is read once in the constructor and `LoadUserGameStatsSchema` uses that same
+  field rather than calling `GetCurrentGameLanguage()` again. A language switch must miss
+  the cache, not show the previous language's text.
+- **Writes are chained through `_SaveTask`, not fired off with `Task.Run`.** A
+  `SqliteConnection` cannot serve two commands at once, and pressing Refresh twice produces
+  two callbacks.
+
+Only the achievement list is cached. Stat definitions still come from the schema file on
+every start; it is a local file and the parse is cheap.
 
 ### The stats schema
 
@@ -481,6 +602,19 @@ A clean build is **0 warnings, 0 errors** on both `AnyCPU` and `x86`. Keep it th
   before. Moving to `ItemsRepeater` + `UniformGridLayout` would restore
   virtualization and visible-only loading, at the cost of hand-rolled selection handling.
 - **Write path is unverified** — see the interop table above.
+- **Orphaned `achievements` rows are never pruned.** `GameCache.Sync` prunes the `games`
+  table and `IconCache.Prune` drops the matching icons, including achievement icons, but
+  nothing deletes achievement *rows* for a game that is no longer owned. They are a few
+  hundred bytes each and a re-purchase makes them current again, so this is noted rather
+  than fixed.
+- **Moving the cache while a game window is open.** `GameCache.MoveTo` and
+  `IconCache.MoveTo` assume they are the only holder. `SAM.Game` keeps its own connection
+  to the same database, so a move performed from the picker's Settings dialog while a game
+  window is open can fail on Windows. Pre-existing in shape, wider in reach now that a
+  second process opens the file.
+- **`SAM.Game/Resources/` still holds two unreferenced PNGs** (`poop-smiley-sad.png` and
+  `poop-smiley-sad-enlarged.png`). They predate the Avalonia migration and nothing in the
+  XAML points at them; left in place rather than deleted on a guess.
 - **The picker toolbar wraps rather than clips.** It is a `WrapPanel`, not a `StackPanel`:
   when the view-mode control was added, a single fixed row ran off the right edge on a
   narrow window and the last button became unreachable. If you add more toolbar items,

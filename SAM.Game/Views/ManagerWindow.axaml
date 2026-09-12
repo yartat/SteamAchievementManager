@@ -19,19 +19,19 @@
       <StackPanel Orientation="Horizontal" Spacing="6" IsEnabled="{Binding IsInputEnabled}">
         <Button Command="{Binding StoreCommand}" ToolTip.Tip="Commit pending changes to Steam">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <Image Source="/Resources/transmitter.png" Width="16" Height="16" />
+            <PathIcon Data="{StaticResource CommitIcon}" />
             <TextBlock Text="Commit Changes" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
         <Button Command="{Binding ReloadCommand}">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <Image Source="/Resources/arrow-circle-double.png" Width="16" Height="16" />
+            <PathIcon Data="{StaticResource RefreshIcon}" />
             <TextBlock Text="Refresh" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
         <Button Command="{Binding ResetAllStatsCommand}" ToolTip.Tip="Reset all stats for this game">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <Image Source="/Resources/bomb.png" Width="16" Height="16" />
+            <PathIcon Data="{StaticResource ResetIcon}" />
             <TextBlock Text="Reset" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
@@ -47,9 +47,15 @@
         <StackPanel DockPanel.Dock="Right"
                     Orientation="Horizontal"
                     Spacing="6"
-                    IsVisible="{Binding IsDownloadStatusVisible}">
-          <Image Source="/Resources/download-cloud.png" Width="16" Height="16" />
-          <TextBlock Text="{Binding DownloadStatusText}" VerticalAlignment="Center" />
+                    IsVisible="{Binding IsProgressVisible}">
+          <PathIcon Data="{StaticResource DownloadIcon}" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding ProgressText}" VerticalAlignment="Center" />
+          <ProgressBar Width="130"
+                       Minimum="0"
+                       Maximum="{Binding ProgressMaximum}"
+                       Value="{Binding ProgressValue}"
+                       IsIndeterminate="{Binding IsProgressIndeterminate}"
+                       VerticalAlignment="Center" />
         </StackPanel>
         <TextBlock Text="{Binding StatusText}"
                    VerticalAlignment="Center"
@@ -66,19 +72,19 @@
             <StackPanel Orientation="Horizontal" Spacing="6">
               <Button Command="{Binding LockAllCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                  <Image Source="/Resources/lock.png" Width="16" Height="16" />
+                  <PathIcon Data="{StaticResource LockIcon}" />
                   <TextBlock Text="Lock All" VerticalAlignment="Center" />
                 </StackPanel>
               </Button>
               <Button Command="{Binding InvertAllCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                  <Image Source="/Resources/lock--pencil.png" Width="16" Height="16" />
+                  <PathIcon Data="{StaticResource InvertIcon}" />
                   <TextBlock Text="Invert All" VerticalAlignment="Center" />
                 </StackPanel>
               </Button>
               <Button Command="{Binding UnlockAllCommand}">
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                  <Image Source="/Resources/lock-unlock.png" Width="16" Height="16" />
+                  <PathIcon Data="{StaticResource UnlockIcon}" />
                   <TextBlock Text="Unlock All" VerticalAlignment="Center" />
                 </StackPanel>
               </Button>

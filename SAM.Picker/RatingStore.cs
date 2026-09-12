@@ -24,6 +24,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using SAM.Shared;
 
 namespace SAM.Picker
 {
@@ -31,13 +32,22 @@ namespace SAM.Picker
     /// Persists the user's own like/dislike ratings.
     /// </summary>
     /// <remarks>
-    /// Stored under <c>%LOCALAPPDATA%\SteamAchievementManager\ratings.json</c>
-    /// rather than next to the executable: this is per-user data, and the app
-    /// directory is not reliably writable. See <see cref="OwnRating"/> for why
-    /// this is local-only and never round-trips to Steam.
+    /// Stored at <c>~/.sam/ratings.json</c>, alongside the settings file and the
+    /// caches, rather than next to the executable: this is per-user data, and
+    /// the app directory is not reliably writable. See <see cref="OwnRating"/>
+    /// for why this is local-only and never round-trips to Steam.
     /// </remarks>
     internal sealed class RatingStore
     {
+        /// <summary>
+        /// Where ratings lived before they joined the rest of SAM's per-user
+        /// files in <c>~/.sam</c>. Read once, then moved.
+        /// </summary>
+        private static string LegacyPath => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "SteamAchievementManager",
+            "ratings.json");
+
         private readonly string _Path;
         private readonly Dictionary<uint, OwnRating> _Ratings;
 
@@ -49,17 +59,15 @@ namespace SAM.Picker
 
         public static RatingStore Load()
         {
-            var path = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "SteamAchievementManager",
-                "ratings.json");
+            var path = Path.Combine(AppSettings.HomeDirectory, "ratings.json");
+            var source = Migrate(path);
 
             Dictionary<uint, OwnRating> ratings = new();
             try
             {
-                if (File.Exists(path) == true)
+                if (File.Exists(source) == true)
                 {
-                    var parsed = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(path));
+                    var parsed = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(source));
                     if (parsed != null)
                     {
                         foreach (var kv in parsed)
@@ -79,7 +87,34 @@ namespace SAM.Picker
                 // startup over; it is a convenience, not user content.
             }
 
+            // Always the new location, whatever they were read from: the next
+            // Set() lands there even if the move could not be done.
             return new(path, ratings);
+        }
+
+        /// <summary>
+        /// Moves a pre-<c>~/.sam</c> ratings file across, once. Returns the file
+        /// that actually holds the ratings now — still the old one if the move
+        /// failed, so a locked or read-only profile loses nothing.
+        /// </summary>
+        private static string Migrate(string path)
+        {
+            try
+            {
+                var legacy = LegacyPath;
+                if (File.Exists(path) == true || File.Exists(legacy) == false)
+                {
+                    return path;
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.Move(legacy, path);
+                return path;
+            }
+            catch (Exception)
+            {
+                return File.Exists(path) == true ? path : LegacyPath;
+            }
         }
 
         public OwnRating Get(uint appId)

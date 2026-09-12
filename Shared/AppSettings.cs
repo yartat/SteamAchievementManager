@@ -25,7 +25,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace SAM.Picker
+namespace SAM.Shared
 {
     /// <summary>
     /// User-configurable cache locations.

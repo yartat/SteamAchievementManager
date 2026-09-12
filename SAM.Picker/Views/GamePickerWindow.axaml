@@ -7,26 +7,13 @@
         Icon="/SAM.ico"
         Width="1020" Height="600"
         MinWidth="420" MinHeight="320"
-        Title="Steam Achievement Manager 7.0 | Pick a game... Any game...">
+        Title="Steam Achievement Manager 8.0 | Pick a game... Any game...">
 
   <Window.Resources>
-    <!-- Drawn rather than shipped as PNGs: the Fugue set used elsewhere has no
-         grid/list glyph, and a PathIcon inherits the theme foreground so it
-         stays legible in both light and dark, which the bitmap icons do not. -->
-    <StreamGeometry x:Key="TilesIcon">M1,1 H7 V7 H1 Z M9,1 H15 V7 H9 Z M1,9 H7 V15 H1 Z M9,9 H15 V15 H9 Z</StreamGeometry>
-    <StreamGeometry x:Key="ContentIcon">M1,2 H5 V6 H1 Z M7,3 H15 V5 H7 Z M1,9 H5 V13 H1 Z M7,10 H15 V12 H7 Z</StreamGeometry>
-    <StreamGeometry x:Key="SortIcon">M2,3 H14 V5 H2 Z M2,7 H10 V9 H2 Z M2,11 H6 V13 H2 Z</StreamGeometry>
-    <StreamGeometry x:Key="SettingsIcon">M8,5.6 A2.4,2.4 0 1 0 8,10.4 A2.4,2.4 0 1 0 8,5.6 Z M7,0.8 H9 L9.35,2.75 A5.4,5.4 0 0 1 10.8,3.6 L12.65,2.9 L13.65,4.65 L12.15,5.95 A5.4,5.4 0 0 1 12.15,10.05 L13.65,11.35 L12.65,13.1 L10.8,12.4 A5.4,5.4 0 0 1 9.35,13.25 L9,15.2 H7 L6.65,13.25 A5.4,5.4 0 0 1 5.2,12.4 L3.35,13.1 L2.35,11.35 L3.85,10.05 A5.4,5.4 0 0 1 3.85,5.95 L2.35,4.65 L3.35,2.9 L5.2,3.6 A5.4,5.4 0 0 1 6.65,2.75 Z</StreamGeometry>
-    <StreamGeometry x:Key="AscendingIcon">M8,2 L13,9 H9.5 V14 H6.5 V9 H3 Z</StreamGeometry>
-    <StreamGeometry x:Key="DescendingIcon">M8,14 L3,7 H6.5 V2 H9.5 V7 H13 Z</StreamGeometry>
-    <StreamGeometry x:Key="LikeIcon">M4,14 V7 H2 V14 Z M6,14 H12 L14,8 V7 H9.5 L10,4 A1.2,1.2 0 0 0 8.5,2.5 L6,7 Z</StreamGeometry>
-    <StreamGeometry x:Key="DislikeIcon">M4,2 V9 H2 V2 Z M6,2 H12 L14,8 V9 H9.5 L10,12 A1.2,1.2 0 0 1 8.5,13.5 L6,9 Z</StreamGeometry>
-
     <!-- Explicit colours rather than theme accents: these need to read as
          positive/negative at a glance, and both work on light and dark. -->
     <SolidColorBrush x:Key="RatingLikeBrush" Color="#2E9E4F" />
     <SolidColorBrush x:Key="RatingDislikeBrush" Color="#D0453B" />
-
   </Window.Resources>
 
   <DockPanel>
@@ -50,7 +37,7 @@
                 IsEnabled="{Binding CanRefresh}"
                 ToolTip.Tip="Refresh the list of owned games">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <Image Source="/Resources/arrow-circle-double.png" Width="16" Height="16" />
+            <PathIcon Data="{StaticResource RefreshIcon}" />
             <TextBlock Text="Refresh Games" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
@@ -70,7 +57,7 @@
         <Button Command="{Binding AddGameByIdCommand}"
                 ToolTip.Tip="Show a single game by its app ID">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <Image Source="/Resources/magnifier.png" Width="16" Height="16" />
+            <PathIcon Data="{StaticResource SearchIcon}" />
             <TextBlock Text="Add Game" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
@@ -96,7 +83,7 @@
               </StackPanel>
             </Flyout>
           </Button.Flyout>
-          <Image Source="/Resources/television-test.png" Width="16" Height="16" />
+          <PathIcon Data="{StaticResource FilterIcon}" />
         </Button>
 
         <Rectangle Width="1" Margin="2,2"
@@ -108,11 +95,11 @@
                            ToolTip.Tip="Click to switch view; use the arrow to pick one">
           <Panel>
             <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsTileView}">
-              <PathIcon Data="{StaticResource TilesIcon}" Width="14" Height="14" />
+              <PathIcon Data="{StaticResource TilesIcon}" />
               <TextBlock Text="Tiles" VerticalAlignment="Center" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="6" IsVisible="{Binding IsContentView}">
-              <PathIcon Data="{StaticResource ContentIcon}" Width="14" Height="14" />
+              <PathIcon Data="{StaticResource ContentIcon}" />
               <TextBlock Text="Content" VerticalAlignment="Center" />
             </StackPanel>
           </Panel>
@@ -122,14 +109,14 @@
                         Command="{Binding ShowTilesCommand}"
                         ToolTip.Tip="Large capsule art with the game name">
                 <MenuItem.Icon>
-                  <PathIcon Data="{StaticResource TilesIcon}" Width="14" Height="14" />
+                  <PathIcon Data="{StaticResource TilesIcon}" />
                 </MenuItem.Icon>
               </MenuItem>
               <MenuItem Header="Content"
                         Command="{Binding ShowContentCommand}"
                         ToolTip.Tip="Rows with playtime and achievement counts">
                 <MenuItem.Icon>
-                  <PathIcon Data="{StaticResource ContentIcon}" Width="14" Height="14" />
+                  <PathIcon Data="{StaticResource ContentIcon}" />
                 </MenuItem.Icon>
               </MenuItem>
             </MenuFlyout>
@@ -139,12 +126,12 @@
         <SplitButton Command="{Binding ToggleSortDirectionCommand}"
                      ToolTip.Tip="Click to reverse the order; use the arrow to choose a field">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <PathIcon Data="{StaticResource SortIcon}" Width="14" Height="14" />
+            <PathIcon Data="{StaticResource SortIcon}" />
             <TextBlock Text="{Binding SortDescriptionText}" VerticalAlignment="Center" />
-            <PathIcon Width="10" Height="10"
+            <PathIcon Classes="small"
                       Data="{StaticResource AscendingIcon}"
                       IsVisible="{Binding !SortDescending}" />
-            <PathIcon Width="10" Height="10"
+            <PathIcon Classes="small"
                       Data="{StaticResource DescendingIcon}"
                       IsVisible="{Binding SortDescending}" />
           </StackPanel>
@@ -177,7 +164,7 @@
         <Button Command="{Binding OpenSettingsCommand}"
                 ToolTip.Tip="Where the game and icon caches are kept">
           <StackPanel Orientation="Horizontal" Spacing="6">
-            <PathIcon Data="{StaticResource SettingsIcon}" Width="14" Height="14" />
+            <PathIcon Data="{StaticResource SettingsIcon}" />
             <TextBlock Text="Settings" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
@@ -194,9 +181,15 @@
         <StackPanel DockPanel.Dock="Right"
                     Orientation="Horizontal"
                     Spacing="6"
-                    IsVisible="{Binding IsDownloadStatusVisible}">
-          <Image Source="/Resources/download-cloud.png" Width="16" Height="16" />
-          <TextBlock Text="{Binding DownloadStatusText}" VerticalAlignment="Center" />
+                    IsVisible="{Binding IsProgressVisible}">
+          <PathIcon Data="{StaticResource DownloadIcon}" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding ProgressText}" VerticalAlignment="Center" />
+          <ProgressBar Width="130"
+                       Minimum="0"
+                       Maximum="{Binding ProgressMaximum}"
+                       Value="{Binding ProgressValue}"
+                       IsIndeterminate="{Binding IsProgressIndeterminate}"
+                       VerticalAlignment="Center" />
         </StackPanel>
         <TextBlock Text="{Binding StatusText}"
                    VerticalAlignment="Center"
@@ -347,14 +340,14 @@
                         ToolTip.Tip="I like this game (saved locally by SAM, never sent to Steam)"
                         Command="{Binding $parent[ListBox].((vm:GamePickerViewModel)DataContext).ToggleLikeCommand}"
                         CommandParameter="{Binding}">
-                  <PathIcon Data="{StaticResource LikeIcon}" Width="12" Height="12" />
+                  <PathIcon Data="{StaticResource LikeIcon}" />
                 </Button>
                 <Button Classes.disliked="{Binding IsDisliked}"
                         Padding="5,3"
                         ToolTip.Tip="I do not like this game (saved locally by SAM, never sent to Steam)"
                         Command="{Binding $parent[ListBox].((vm:GamePickerViewModel)DataContext).ToggleDislikeCommand}"
                         CommandParameter="{Binding}">
-                  <PathIcon Data="{StaticResource DislikeIcon}" Width="12" Height="12" />
+                  <PathIcon Data="{StaticResource DislikeIcon}" />
                 </Button>
               </StackPanel>
             </Grid>

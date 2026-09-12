@@ -25,6 +25,7 @@ using System.IO;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using SAM.Shared;
 
 namespace SAM.Picker.ViewModels
 {

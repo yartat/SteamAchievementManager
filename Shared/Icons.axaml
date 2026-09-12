@@ -1,0 +1,85 @@
+<!--
+  Copyright (c) 2024 Rick (rick 'at' gibbed 'dot' us)
+
+  This software is provided 'as-is', without any express or implied
+  warranty. In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would
+     be appreciated but is not required.
+
+  2. Altered source versions must be plainly marked as such, and must not
+     be misrepresented as being the original software.
+
+  3. This notice may not be removed or altered from any source
+     distribution.
+-->
+<!--
+  The whole icon set, for both applications, and the one style that sizes it.
+
+  These replaced a set of 16x16 PNGs from the Fugue pack. A PathIcon inherits
+  the theme foreground, so it stays legible in dark mode; the bitmaps did not,
+  and a toolbar that mixed the two could not be sized or coloured from one
+  place. Do not reintroduce an <Image> icon in a button.
+
+  Every geometry is drawn on a 16x16 grid with its content spanning roughly
+  1..15. That matters: PathIcon stretches the geometry's own bounds uniformly
+  into Width x Height, so a glyph drawn on a different grid renders at a
+  different apparent weight next to its neighbours.
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+
+    <!-- Actions -->
+    <StreamGeometry x:Key="RefreshIcon">M8,2.6 A5.4,5.4 0 1 0 13.4,8 H15.4 A7.4,7.4 0 1 1 8,0.6 Z M7.2,0 L12.2,2.6 L7.2,5.2 Z</StreamGeometry>
+    <StreamGeometry x:Key="SearchIcon">M6.6,1 A5.6,5.6 0 1 1 6.6,12.2 A5.6,5.6 0 1 1 6.6,1 Z M6.6,3 A3.6,3.6 0 1 0 6.6,10.2 A3.6,3.6 0 1 0 6.6,3 Z M10.7,12.1 L12.1,10.7 L15.4,14 L14,15.4 Z</StreamGeometry>
+    <StreamGeometry x:Key="FilterIcon">M1,1 H15 V3.2 L9.6,8.6 V15 L6.4,13 V8.6 L1,3.2 Z</StreamGeometry>
+    <StreamGeometry x:Key="DownloadIcon">M6.8,1 H9.2 V7.6 H12.4 L8,12.6 L3.6,7.6 H6.8 Z M2,13.4 H14 V15.4 H2 Z</StreamGeometry>
+    <StreamGeometry x:Key="CommitIcon">M8,1 L12.4,6 H9.2 V12.6 H6.8 V6 H3.6 Z M2,13.4 H14 V15.4 H2 Z</StreamGeometry>
+    <StreamGeometry x:Key="ResetIcon">M2.2,10.2 A5,5 0 1 0 12.2,10.2 A5,5 0 1 0 2.2,10.2 Z M10.3,6.2 C11.3,4.5 12.5,3.5 14.5,3.5 V5.4 C13.3,5.4 12.6,6 11.9,7.3 Z M14.3,0 L15,1.5 L16,2.1 L15,2.7 L14.3,4.2 L13.6,2.7 L12.6,2.1 L13.6,1.5 Z</StreamGeometry>
+    <StreamGeometry x:Key="SettingsIcon">M8,5.6 A2.4,2.4 0 1 0 8,10.4 A2.4,2.4 0 1 0 8,5.6 Z M7,0.8 H9 L9.35,2.75 A5.4,5.4 0 0 1 10.8,3.6 L12.65,2.9 L13.65,4.65 L12.15,5.95 A5.4,5.4 0 0 1 12.15,10.05 L13.65,11.35 L12.65,13.1 L10.8,12.4 A5.4,5.4 0 0 1 9.35,13.25 L9,15.2 H7 L6.65,13.25 A5.4,5.4 0 0 1 5.2,12.4 L3.35,13.1 L2.35,11.35 L3.85,10.05 A5.4,5.4 0 0 1 3.85,5.95 L2.35,4.65 L3.35,2.9 L5.2,3.6 A5.4,5.4 0 0 1 6.65,2.75 Z</StreamGeometry>
+
+    <!-- Achievement state. Lock and Unlock share a body and a keyhole and
+         differ only in the shackle, which is the whole point: at 14px the two
+         have to be told apart at a glance. -->
+    <StreamGeometry x:Key="LockIcon">M8,0.8 A3.6,3.6 0 0 1 11.6,4.4 V7 H9.6 V4.4 A1.6,1.6 0 0 0 6.4,4.4 V7 H4.4 V4.4 A3.6,3.6 0 0 1 8,0.8 Z M2.8,7 H13.2 V15 H2.8 Z M6.7,9.7 A1.3,1.3 0 1 0 9.3,9.7 A1.3,1.3 0 1 0 6.7,9.7 Z M7.3,11 H8.7 V12.9 H7.3 Z</StreamGeometry>
+    <StreamGeometry x:Key="UnlockIcon">M4.4,7 V4.4 A3.6,3.6 0 0 1 11.6,4.4 H9.6 A1.6,1.6 0 0 0 6.4,4.4 V7 Z M2.8,7 H13.2 V15 H2.8 Z M6.7,9.7 A1.3,1.3 0 1 0 9.3,9.7 A1.3,1.3 0 1 0 6.7,9.7 Z M7.3,11 H8.7 V12.9 H7.3 Z</StreamGeometry>
+    <StreamGeometry x:Key="InvertIcon">M2.8,1 H5.2 V9.6 H7.8 L4,14.6 L0.2,9.6 H2.8 Z M10.8,15 H13.2 V6.4 H15.8 L12,1.4 L8.2,6.4 H10.8 Z</StreamGeometry>
+
+    <!-- View state -->
+    <StreamGeometry x:Key="TilesIcon">M1,1 H7 V7 H1 Z M9,1 H15 V7 H9 Z M1,9 H7 V15 H1 Z M9,9 H15 V15 H9 Z</StreamGeometry>
+    <StreamGeometry x:Key="ContentIcon">M1,2 H5 V6 H1 Z M7,3 H15 V5 H7 Z M1,9 H5 V13 H1 Z M7,10 H15 V12 H7 Z</StreamGeometry>
+    <StreamGeometry x:Key="SortIcon">M2,3 H14 V5 H2 Z M2,7 H10 V9 H2 Z M2,11 H6 V13 H2 Z</StreamGeometry>
+    <StreamGeometry x:Key="AscendingIcon">M8,2 L13,9 H9.5 V14 H6.5 V9 H3 Z</StreamGeometry>
+    <StreamGeometry x:Key="DescendingIcon">M8,14 L3,7 H6.5 V2 H9.5 V7 H13 Z</StreamGeometry>
+
+    <!-- The user's own rating -->
+    <StreamGeometry x:Key="LikeIcon">M4,14 V7 H2 V14 Z M6,14 H12 L14,8 V7 H9.5 L10,4 A1.2,1.2 0 0 0 8.5,2.5 L6,7 Z</StreamGeometry>
+    <StreamGeometry x:Key="DislikeIcon">M4,2 V9 H2 V2 Z M6,2 H12 L14,8 V9 H9.5 L10,12 A1.2,1.2 0 0 1 8.5,13.5 L6,9 Z</StreamGeometry>
+
+  </Styles.Resources>
+
+  <!-- One size for every icon in the application, so a toolbar cannot drift
+       out of alignment one button at a time. Add a class here rather than a
+       Width/Height on the usage. -->
+  <Style Selector="PathIcon">
+    <Setter Property="Width" Value="14" />
+    <Setter Property="Height" Value="14" />
+  </Style>
+
+  <!-- For a glyph that qualifies another rather than standing on its own,
+       such as the sort-direction arrow next to the sort field. -->
+  <Style Selector="PathIcon.small">
+    <Setter Property="Width" Value="10" />
+    <Setter Property="Height" Value="10" />
+  </Style>
+
+</Styles>
