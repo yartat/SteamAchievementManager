@@ -49,22 +49,51 @@ will run it, and they are already emulating the Steam client itself. The arm64 b
 published only so the set is complete; they start up and tell you this rather than failing
 in a confusing way.
 
+## Where SAM keeps its files
+
+Everything SAM stores lives under `~/.sam` — `C:\Users\<you>\.sam` on Windows,
+`/home/<you>/.sam` on Linux, `/Users/<you>/.sam` on macOS.
+
+| File | What it holds | Movable |
+|---|---|---|
+| `settings.json` | where the database and icons are kept | no — it is read to find the others |
+| `ratings.json` | your own like/dislike per game | no |
+| `games.db` | owned games, their statistics, and each game's achievements | yes, from **Settings** |
+| `icons/` | capsule art and achievement icons | yes, from **Settings** |
+
+All of it is a cache or a local preference: delete any of it and SAM rebuilds it from Steam
+on the next run, losing only your like/dislike ratings. Nothing here is ever sent to Steam.
+
 ## Versioning
 
-Current version: **7.0.x** (latest tag `7.0.41`). The 7.0 series marks the open-source release.
+Current version: **8.0.0**. The 7.0 series marked the open-source release; 8.0 follows the
+move to .NET 10 and Avalonia, and adds the on-disk caches described above.
 
 ## Changes since the last closed-source release
 
 - General code maintenance to bring the code into a more modern state.
-- Icons have been replaced with ones from the Fugue Icons set.
+- **All icons are vector.** The toolbars use drawn geometries rather than bitmaps, so
+  they take the theme's foreground colour and stay legible in dark mode. Earlier
+  releases used the Fugue Icons bitmaps.
 - Support for the current `UserGameStatsSchema` format, alongside the older one.
 - Achievement unlock times are shown in the manager.
 - 64-bit support: `steamclient64.dll` is loaded when running as a 64-bit process, and the projects build for `AnyCPU` as well as `x86`.
 - **Migrated from .NET Framework 4.8 to .NET 10.** The default `AnyCPU` build now runs as a 64-bit process and talks to the 64-bit Steam client; build the `x86` configuration if you need a 32-bit process.
 - **Migrated from Windows Forms to [Avalonia](https://avaloniaui.net/).** The interop layer is unchanged; only the UI was rewritten.
 - **Two picker view modes.** *Tiles* shows large capsule art with the game name. *Content* shows a row per game with a small icon, the name, release date, when you last played, the Steam review score, earned/total achievements, and your own like/dislike. Sort by any of those from the toolbar or by clicking a column header. This data is read from Steam's local caches, so it is only available for games Steam has already fetched data for; anything else shows `—`.
-- **Your own like/dislike** is stored by SAM in `%LOCALAPPDATA%\SteamAchievementManager\ratings.json`. It is *not* your Steam review — Steam does not expose that locally — and nothing is ever sent to Steam.
+- **Your own like/dislike** is stored by SAM in `~/.sam/ratings.json`, alongside its
+  other files. It is *not* your Steam review — Steam does not expose that locally —
+  and nothing is ever sent to Steam. If you are upgrading, an existing
+  `ratings.json` under `%LOCALAPPDATA%\SteamAchievementManager\` is moved across the
+  first time you run 8.0.
 - **The library is cached, so the picker opens straight away.** Games and their statistics go into a SQLite database at `~/.sam/games.db`, and capsule art into `~/.sam/icons`. On launch the cached library is shown immediately while the list is re-checked against Steam in the background; games you no longer own are dropped from the cache and new ones added. Use the **Settings** button to move either location — the existing data is moved with it.
+- **Achievements are cached too.** The first time you open a game, SAM waits for Steam
+  and then stores that game's achievement list and its icons in the same database and
+  icon folder. After that the list appears as soon as the window does, and is
+  refreshed from Steam in the background. Icons are only downloaded once.
+- **Progress is shown while loading.** The status bar in both windows reports what is
+  happening and how far along it is — checking which games you own, reading library
+  stats, and fetching icons — instead of appearing to hang on a large library.
 - Fixed a long-standing bug in the `ISteamClient::GetISteamApps` interop signature, which was missing the `this` pointer. It went unnoticed for years in 32-bit builds but returns a null interface in 64-bit ones.
 - **Cross-platform builds.** The interop layer no longer depends on `kernel32` or the Windows registry: it uses `NativeLibrary` and per-OS Steam path discovery, so the projects target plain `net10.0` and publish for Windows, Linux and macOS. See [Platform support](#platform-support) for which targets Steam can actually talk to.
 
@@ -73,7 +102,7 @@ Current version: **7.0.x** (latest tag `7.0.41`). The 7.0 series marks the open-
 Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0). The exact
 version is pinned in `global.json`. No Visual Studio installation is required, though
 Visual Studio 2022 17.14 or newer will also open and build the solution. NuGet packages
-(Avalonia, CommunityToolkit.Mvvm) are restored automatically.
+(Avalonia, CommunityToolkit.Mvvm, Microsoft.Data.Sqlite) are restored automatically.
 
 ```
 dotnet build SAM.sln -c Release
@@ -115,4 +144,6 @@ dotnet publish SAM.Game/SAM.Game.csproj -c Release -r win-x64 --self-contained t
 
 Original work by [gibbed](https://github.com/gibbed). Released under the zlib license — see [LICENSE.txt](LICENSE.txt).
 
-Most (if not all) icons are from the [Fugue Icons](https://p.yusukekamiyamane.com/) set.
+The toolbar and status icons are vector geometries drawn for this fork. Earlier
+releases used the [Fugue Icons](https://p.yusukekamiyamane.com/) set, and some of
+those assets are still in the repository and its history.

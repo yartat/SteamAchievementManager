@@ -135,7 +135,9 @@ of which ~100 MB is native `.pdb` symbols that the CI zip strips (`-x!*.pdb`), l
 release around 27 MB. `AppendRuntimeIdentifierToOutputPath=false` matters because the two
 executables launch each other by path and must stay in the same flat directory.
 
-There are **no tests** in this repository and no test framework is referenced.
+There are **no tests** in this repository and no test framework is referenced. That does
+not mean nothing can be checked without Steam — see "Verifying without Steam" under
+[Running](#running).
 
 ## Running
 
@@ -144,6 +146,31 @@ Requires the Steam client installed, running, and logged in. On Windows SAM read
 `SteamPlatform.GetUnixInstallCandidates`. Without a live Steam process
 `Client.Initialize` throws `ClientInitializeException`. You cannot meaningfully exercise
 this code in CI or a sandbox — changes to interop must be tested by hand.
+
+### Verifying without Steam
+
+Plenty of this codebase *can* be exercised on a machine with no Steam at all, and should be
+before anything is called done. There are no tests in the repository, so this means a
+throwaway console project that links the files under test:
+
+- **The SQLite layer, `IconCache`, `RatingStore`, `ProgressViewModel`** — plain classes.
+  Link the `.cs` files into a scratch project and drive them. `AppSettings.HomeDirectory`
+  is a static path with no seam, so anything touching it runs against the real `~/.sam`:
+  check the directory does not already exist and restore the machine afterwards, or do not
+  run it at all.
+- **Windows, resources and styles** — `Avalonia.Headless` plus `Avalonia.Skia`, with
+  `UseHeadlessDrawing = false`. `AppBuilder.Configure<App>().UseSkia().UseHeadless(...)
+  .SetupWithoutStarting()` runs `App.Initialize()` without a lifetime, so
+  `OnFrameworkInitializationCompleted` skips the Steam handshake. A window can then be
+  constructed, measured, arranged and rendered with `CaptureRenderedFrame()`. This catches
+  everything in the right-hand column of the table under
+  [The UI layer](#the-ui-layer), and the PNG it hands back can be looked at.
+- **Icon geometries** — render them and measure the ink. Do **not** use `Geometry.Bounds`
+  for this: for an arc it reports the endpoint extents rather than the swept extents, so
+  `RefreshIcon` measures 8.2 wide on a 16 grid and renders 15.
+
+What this cannot reach is anything behind `API.Client`: the vtable dispatch, the schema
+parse, `LibraryStats`, and every number the windows actually display.
 
 ## Architecture
 
@@ -260,9 +287,21 @@ Both apps follow the same Avalonia shape, and it is worth knowing before editing
   `ErrorRaised` / `MessageRaised` / `ConfirmRequested` and the window handles them.
 - Bindings are compiled (`AvaloniaUseCompiledBindingsByDefault`), so every `DataTemplate`
   needs an `x:DataType` and binding typos are build errors rather than silent no-ops.
-  **This is not the same as the XAML being verified.** A `Grid.ColumnDefinitions` fed from
-  an `x:String` resource compiled cleanly and then threw `InvalidCastException` at window
-  construction. A green build does not mean the window opens — run it.
+  **That is the only part of the XAML the build checks.** Know which side of the line you
+  are on:
+
+  | Caught at build | Only caught when the window opens |
+  |---|---|
+  | `{Binding Foo}` where `Foo` is not on the `x:DataType` | `{StaticResource Foo}` where `Foo` does not exist |
+  | `{CompiledBinding}` paths | `<StyleInclude Source="...">` pointing nowhere |
+  | unknown control or property names | a property fed a resource of the wrong type |
+
+  Two of those three have already bitten this repository: a `Grid.ColumnDefinitions` fed
+  from an `x:String` resource compiled cleanly and threw `InvalidCastException` at
+  construction, and renaming a key in `Shared/Icons.axaml` still builds with zero warnings.
+  **A green build does not mean the window opens** — see
+  [Verifying without Steam](#verifying-without-steam) for how to check without a Steam
+  client.
 - **Do not bind `ToggleButton.IsChecked` to view-model state.** A `ToggleButton` flips its
   own `IsChecked` on click, which fights the binding and leaves the button showing a state
   that was never saved. The like/dislike buttons are plain `Button`s with
