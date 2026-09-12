@@ -20,44 +20,17 @@
  *    distribution.
  */
 
-namespace SAM.Picker
+namespace SAM.Game
 {
     /// <summary>
-    /// The user's own like/dislike for a game.
+    /// Which achievements the editor lists. Replaces a pair of independent
+    /// "show only locked" / "show only unlocked" toggles that could be set to
+    /// two combinations meaning the same thing.
     /// </summary>
-    /// <remarks>
-    /// This is <em>SAM's own</em> rating, stored locally — it is not Steam's
-    /// review recommendation. Steam keeps that server-side and exposes it only
-    /// through the Web API, which needs an API key SAM does not have and does
-    /// not ask for. Nothing here is sent to Steam.
-    /// </remarks>
-    internal enum OwnRating
-    {
-        None = 0,
-        Like = 1,
-        Dislike = 2,
-    }
-
-    internal enum GameSortField
-    {
-        Name = 0,
-        ReleaseDate = 1,
-        LastPlayed = 2,
-        SteamRating = 3,
-        OwnRating = 4,
-        Completion = 5,
-    }
-
-    /// <summary>
-    /// The Library rail's mutually exclusive collections. Distinct from the
-    /// Show games/demos/mods/junk toggles, which are inclusive and combine.
-    /// </summary>
-    internal enum GameCollection
+    internal enum AchievementFilter
     {
         All = 0,
-        RecentlyPlayed = 1,
-        WithAchievements = 2,
-        Perfect = 3,
-        Liked = 4,
+        Locked = 1,
+        Unlocked = 2,
     }
 }

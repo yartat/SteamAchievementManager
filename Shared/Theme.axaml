@@ -1,0 +1,83 @@
+<!--
+  Copyright (c) 2024 Rick (rick 'at' gibbed 'dot' us)
+
+  This software is provided 'as-is', without any express or implied
+  warranty. In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would
+     be appreciated but is not required.
+
+  2. Altered source versions must be plainly marked as such, and must not
+     be misrepresented as being the original software.
+
+  3. This notice may not be removed or altered from any source
+     distribution.
+-->
+<!--
+  The Library palette, for both applications.
+
+  Every brush here exists in a Light and a Dark form and must be referenced
+  with {DynamicResource}: the app is RequestedThemeVariant="Default", so it
+  follows the system and the variant can change while a window is open. A
+  {StaticResource} would resolve once and then lie.
+
+  Gold is the accent because the subject is achievements. It is NOT the same
+  value in both variants: #DDA63A reads well on a near-black ground and fails
+  on white (about 2:1), so the light variant darkens it to keep text and meters
+  legible. Never use the dark gold on a light surface.
+
+  The like/dislike pair is deliberately left alone - those two are the app's
+  existing semantic tokens and mean the same thing in either variant.
+-->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="SamWindowBrush" Color="#FBFAF8" />
+      <SolidColorBrush x:Key="SamRailBrush" Color="#F4F2EE" />
+      <SolidColorBrush x:Key="SamPanelBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="SamBorderBrush" Color="#E4E1DB" />
+      <SolidColorBrush x:Key="SamTextBrush" Color="#1C1B19" />
+      <SolidColorBrush x:Key="SamSecondaryTextBrush" Color="#57544F" />
+      <SolidColorBrush x:Key="SamMutedTextBrush" Color="#8A8781" />
+      <SolidColorBrush x:Key="SamAccentBrush" Color="#8A6612" />
+      <SolidColorBrush x:Key="SamOnAccentBrush" Color="#FFFFFF" />
+      <SolidColorBrush x:Key="SamAccentSoftBrush" Color="#1E8A6612" />
+      <SolidColorBrush x:Key="SamAccentTextBrush" Color="#6F510B" />
+      <SolidColorBrush x:Key="SamMeterTrackBrush" Color="#E4E1DB" />
+      <SolidColorBrush x:Key="SamPlaceholderBrush" Color="#E8E5DF" />
+      <SolidColorBrush x:Key="SamSelectionBrush" Color="#14000000" />
+    </ResourceDictionary>
+
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="SamWindowBrush" Color="#131417" />
+      <SolidColorBrush x:Key="SamRailBrush" Color="#17181C" />
+      <SolidColorBrush x:Key="SamPanelBrush" Color="#1D1F24" />
+      <SolidColorBrush x:Key="SamBorderBrush" Color="#26282E" />
+      <SolidColorBrush x:Key="SamTextBrush" Color="#E9E7E4" />
+      <SolidColorBrush x:Key="SamSecondaryTextBrush" Color="#9A968F" />
+      <SolidColorBrush x:Key="SamMutedTextBrush" Color="#6E6A64" />
+      <SolidColorBrush x:Key="SamAccentBrush" Color="#DDA63A" />
+      <SolidColorBrush x:Key="SamOnAccentBrush" Color="#17130A" />
+      <SolidColorBrush x:Key="SamAccentSoftBrush" Color="#24DDA63A" />
+      <SolidColorBrush x:Key="SamAccentTextBrush" Color="#E8C97C" />
+      <SolidColorBrush x:Key="SamMeterTrackBrush" Color="#2A2C33" />
+      <SolidColorBrush x:Key="SamPlaceholderBrush" Color="#24262C" />
+      <SolidColorBrush x:Key="SamSelectionBrush" Color="#18FFFFFF" />
+    </ResourceDictionary>
+
+  </ResourceDictionary.ThemeDictionaries>
+
+  <!-- Variant-independent: the app's existing like/dislike semantics. -->
+  <SolidColorBrush x:Key="RatingLikeBrush" Color="#2E9E4F" />
+  <SolidColorBrush x:Key="RatingDislikeBrush" Color="#D0453B" />
+
+</ResourceDictionary>

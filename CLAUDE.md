@@ -37,6 +37,7 @@ which is what makes the avares path identical in both assemblies):
 | `IconCache.cs` | both write into the same icon directory |
 | `ProgressViewModel.cs` | one status-bar progress indicator, behaving the same in both windows |
 | `Icons.axaml` | one icon set and one style sizing it |
+| `Theme.axaml` | the Library palette, in a Light and a Dark form |
 
 They are linked rather than moved into `SAM.API` because that project stays
 package-free and SQLite is a package. Both assemblies get their own copy of the
@@ -311,21 +312,54 @@ Both apps follow the same Avalonia shape, and it is worth knowing before editing
   decoded pixels, so the source stream can be disposed immediately — which is why the old
   "bitmap outlives its MemoryStream" bug does not exist in the ported code.
 
-### Picker view modes and `LibraryStats`
+### The Library layout
 
-The picker's toolbar has a single `ToggleSplitButton`. Its primary half shows the active
-mode's icon and label and flips to the other mode on click (`IsChecked` is bound to
-`IsContentView`); its drop-down half is a `MenuFlyout` that selects a mode outright via
-`ShowTilesCommand` / `ShowContentCommand`. Tiles is the capsule grid; Content is one row
-per game with a small capsule, name, playtime and `earned / total` achievements. Both views
-bind the same `FilteredGames` collection; only `IsVisible` differs.
+Both windows follow the Library design (`SAM 8.0 Library`). The organising idea is
+**completion**: how far through a game's achievements you are is the thing the picker is
+built to show, not a column you can sort by if you think to.
 
-The two mode glyphs are `PathIcon` geometries, like every other icon in either
-application — see "Icons" below.
+**The picker** is a left rail plus a main area. The rail carries two kinds of thing and
+they must not be made to look alike:
 
-Content columns are: capsule, name, release date, last played, Steam rating, achievements,
-and the user's own like/dislike. Headers are buttons that set the sort; clicking the active
-field reverses it. The toolbar `SplitButton` does the same and also covers tile view.
+- **Collections** (`GameCollection`) are mutually exclusive — All games, Recently played,
+  Has achievements, Perfect games, Liked. They are buttons with a `Classes.on` binding.
+- **Also show** are the pre-existing `ShowGames` / `ShowDemos` / `ShowMods` / `ShowJunk`
+  toggles, which are inclusive and combine. They are `CheckBox`es, which is the whole
+  reason they look different.
+
+Both narrow the same pass in `RefreshGames`, collection first, then type.
+
+Rail counts are computed over the **whole library**, not the filtered view, so a count
+never changes just because another collection is open. `RefreshCollectionCounts` has to be
+called after anything that moves the library or its stats — the cached load, the ownership
+merge, the stats pass, and a rating change. Completion only becomes known in the stats
+pass, so that one also re-runs `RefreshGames` when a collection or sort depends on it.
+
+The tile grid carries the meter. **The meter is absent, not empty, when Steam has never
+cached a schema** (`HasCompletion`): an empty track would read as "none earned", and
+unknown and zero are different answers. Both views still bind the same `FilteredGames`;
+only `IsVisible` differs.
+
+**The editor** is a game header, filter chips, a list, and a detail pane. The detail pane
+exists because the description had nowhere to go in the old three-column grid.
+
+Content columns are: capsule, name, release date, last played, Steam rating, achievements
+(count plus meter), and the user's own like/dislike. Headers are buttons that set the sort.
+
+### The palette
+
+`Shared/Theme.axaml` is a `ResourceDictionary` with `ThemeDictionaries` for Light and Dark,
+merged into each app's `Application.Resources`. **Every `Sam*` brush must be referenced with
+`{DynamicResource}`.** The app is `RequestedThemeVariant="Default"`, so it follows the
+system and the variant can change while a window is open; a `{StaticResource}` resolves
+once and then lies.
+
+Gold is the accent because the subject is achievements, and it is deliberately **not the
+same value in both variants**: `#DDA63A` reads well on near-black and manages about 2:1 on
+white, so the light variant darkens it to `#8A6612`. Do not "unify" them.
+
+`RatingLikeBrush` and `RatingDislikeBrush` sit outside the theme dictionaries on purpose —
+they are the app's existing semantic tokens and mean the same thing in either variant.
 
 ### Icons
 
@@ -517,6 +551,38 @@ Three things that are easy to get wrong here:
 
 Only the achievement list is cached. Stat definitions still come from the schema file on
 every start; it is a local file and the parse is cheap.
+
+### Pending changes (`SAM.Game`)
+
+`_PendingStates` holds the user's uncommitted toggles by achievement id, and it is the
+model — `Achievements` is only what the filters last left on screen. This is not
+bookkeeping for the Uncommitted bar; it fixes two real bugs the bar would otherwise have
+made obvious:
+
+- Changing a filter rebuilt the list from Steam and **silently discarded every pending
+  toggle**.
+- `StoreAchievements` read the changed rows off `Achievements`, so a change made before
+  switching filters **was never committed**.
+
+Three rules keep it honest:
+
+- `_SteamStates` caches what Steam last said, read once per callback by
+  `RefreshSteamStates`. The list can then be rebuilt for a filter or search change without
+  asking Steam again, and `EffectiveState` is "the override if there is one, else Steam's".
+- A toggle back to Steam's value **removes** the entry rather than storing a no-op, so the
+  count is the number of real changes.
+- `RefreshSteamStates` clears pending. Anything toggled while the *cached* list was on
+  screen was toggled against unconfirmed state, so it is dropped rather than replayed onto
+  the real values.
+
+Bulk operations set `_IsBulkUpdating` so the summary is recomputed once rather than once
+per achievement — on Civilization V that is the difference between 10 and 2,860 property
+notifications.
+
+The filter is one `AchievementFilter` enum, replacing a pair of independent
+"show only locked" / "show only unlocked" booleans that could be set to two different
+combinations meaning the same thing. It filters on the state **on screen**, pending edits
+included, so an achievement does not vanish from Locked the instant it is ticked.
 
 ### The stats schema
 

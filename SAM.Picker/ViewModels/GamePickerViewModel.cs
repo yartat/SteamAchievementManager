@@ -155,8 +155,112 @@ namespace SAM.Picker.ViewModels
             GameSortField.LastPlayed => "Last played",
             GameSortField.SteamRating => "Steam rating",
             GameSortField.OwnRating => "My rating",
+            GameSortField.Completion => "Completion",
             _ => "Name",
         };
+
+        private GameCollection _SelectedCollection = GameCollection.All;
+
+        /// <summary>
+        /// Which of the rail's collections is showing. Unlike the type toggles
+        /// below, these are mutually exclusive.
+        /// </summary>
+        public GameCollection SelectedCollection
+        {
+            get => this._SelectedCollection;
+            set
+            {
+                if (this.SetProperty(ref this._SelectedCollection, value) == false)
+                {
+                    return;
+                }
+                this.OnPropertyChanged(nameof(this.CollectionTitle));
+                foreach (var name in CollectionSelectionNames)
+                {
+                    this.OnPropertyChanged(name);
+                }
+                this.RefreshGames();
+            }
+        }
+
+        private static readonly string[] CollectionSelectionNames =
+        {
+            nameof(IsAllSelected), nameof(IsRecentSelected), nameof(IsWithAchievementsSelected),
+            nameof(IsPerfectSelected), nameof(IsLikedSelected),
+        };
+
+        public bool IsAllSelected => this.SelectedCollection == GameCollection.All;
+        public bool IsRecentSelected => this.SelectedCollection == GameCollection.RecentlyPlayed;
+        public bool IsWithAchievementsSelected => this.SelectedCollection == GameCollection.WithAchievements;
+        public bool IsPerfectSelected => this.SelectedCollection == GameCollection.Perfect;
+        public bool IsLikedSelected => this.SelectedCollection == GameCollection.Liked;
+
+        public string CollectionTitle => this.SelectedCollection switch
+        {
+            GameCollection.RecentlyPlayed => "Recently played",
+            GameCollection.WithAchievements => "Has achievements",
+            GameCollection.Perfect => "Perfect games",
+            GameCollection.Liked => "Liked",
+            _ => "All games",
+        };
+
+        [RelayCommand]
+        private void SelectCollection(GameCollection collection)
+        {
+            this.SelectedCollection = collection;
+        }
+
+        /// <summary>
+        /// The rail's counts. Deliberately computed over the whole library
+        /// rather than the filtered view, so a count never changes just because
+        /// a different collection is open.
+        /// </summary>
+        public int AllCount => this._Games.Count;
+
+        public int RecentCount => this._Games.Values.Count(g => g.LastPlayed.HasValue == true);
+
+        public int WithAchievementsCount => this._Games.Values.Count(g => g.HasCompletion == true);
+
+        public int PerfectCount => this._Games.Values.Count(g => g.IsPerfect == true);
+
+        public int LikedCount => this._Games.Values.Count(g => g.IsLiked == true);
+
+        /// <summary>Earned and total across everything Steam has cached.</summary>
+        public string LibrarySummaryText
+        {
+            get
+            {
+                var earned = 0;
+                var total = 0;
+                foreach (var info in this._Games.Values)
+                {
+                    if (info.Stats.HasValue == false || info.Stats.Value.AchievementsTotal <= 0)
+                    {
+                        continue;
+                    }
+                    earned += info.Stats.Value.AchievementsEarned;
+                    total += info.Stats.Value.AchievementsTotal;
+                }
+                return total == 0
+                    ? $"{this._Games.Count:N0} owned"
+                    : $"{this._Games.Count:N0} owned · {earned:N0} of {total:N0} achievements";
+            }
+        }
+
+        private static readonly string[] CollectionCountNames =
+        {
+            nameof(AllCount), nameof(RecentCount), nameof(WithAchievementsCount),
+            nameof(PerfectCount), nameof(LikedCount), nameof(LibrarySummaryText),
+        };
+
+        /// <summary>Call after anything that changes the library or its stats.</summary>
+        private void RefreshCollectionCounts()
+        {
+            foreach (var name in CollectionCountNames)
+            {
+                this.OnPropertyChanged(name);
+            }
+        }
 
         /// <summary>
         /// Clicking the field already being sorted by flips the direction,
@@ -200,6 +304,11 @@ namespace SAM.Picker.ViewModels
                 GameSortField.OwnRating => this.SortDescending == true
                     ? games.OrderByDescending(g => RatingOrder(g.OwnRating)).ThenBy(g => g.Name)
                     : games.OrderBy(g => RatingOrder(g.OwnRating)).ThenBy(g => g.Name),
+                // Games Steam has never cached sort to the far end either way
+                // rather than pretending to be 0%.
+                GameSortField.Completion => this.SortDescending == true
+                    ? games.OrderByDescending(g => g.Completion ?? -1.0).ThenBy(g => g.Name)
+                    : games.OrderBy(g => g.Completion ?? 2.0).ThenBy(g => g.Name),
                 _ => this.SortDescending == true
                     ? games.OrderByDescending(g => g.Name)
                     : games.OrderBy(g => g.Name),
@@ -324,7 +433,10 @@ namespace SAM.Picker.ViewModels
                     "Your rating was applied for this session but could not be saved to disk.");
             }
 
-            if (this.SortField == GameSortField.OwnRating)
+            this.RefreshCollectionCounts();
+
+            if (this.SortField == GameSortField.OwnRating ||
+                this.SelectedCollection == GameCollection.Liked)
             {
                 this.RefreshGames();
             }
@@ -482,6 +594,7 @@ namespace SAM.Picker.ViewModels
 
             if (this._Games.Count > 0)
             {
+                this.RefreshCollectionCounts();
                 this.RefreshGames();
                 this.StatusText = $"Showing {this._Games.Count} cached games. Refreshing...";
             }
@@ -719,6 +832,7 @@ namespace SAM.Picker.ViewModels
                 };
             }
 
+            this.RefreshCollectionCounts();
             this.RefreshGames();
             this.CanRefresh = true;
             this.EndProgress();
@@ -787,8 +901,12 @@ namespace SAM.Picker.ViewModels
             }
 
             this.EndProgress();
+            this.RefreshCollectionCounts();
 
-            if (this.SortField != GameSortField.Name)
+            // Completion only becomes known here, so a collection or sort that
+            // depends on it has to be re-evaluated.
+            if (this.SortField != GameSortField.Name ||
+                this.SelectedCollection != GameCollection.All)
             {
                 this.RefreshGames();
             }
@@ -869,6 +987,19 @@ namespace SAM.Picker.ViewModels
                     _ => true,
                 };
                 if (wanted == false)
+                {
+                    continue;
+                }
+
+                var inCollection = this.SelectedCollection switch
+                {
+                    GameCollection.RecentlyPlayed => info.LastPlayed.HasValue,
+                    GameCollection.WithAchievements => info.HasCompletion,
+                    GameCollection.Perfect => info.IsPerfect,
+                    GameCollection.Liked => info.IsLiked,
+                    _ => true,
+                };
+                if (inCollection == false)
                 {
                     continue;
                 }

@@ -72,6 +72,10 @@ move to .NET 10 and Avalonia, and adds the on-disk caches described above.
 ## Changes since the last closed-source release
 
 - General code maintenance to bring the code into a more modern state.
+- **New Library layout.** The picker is now a collections rail plus a grid that shows how
+  far through each game's achievements you are; the editor pairs the achievement list with
+  a detail pane, and gathers uncommitted changes into one bar so you can see what is about
+  to be sent to Steam before you send it. Both follow your system light/dark setting.
 - **All icons are vector.** The toolbars use drawn geometries rather than bitmaps, so
   they take the theme's foreground colour and stay legible in dark mode. Earlier
   releases used the Fugue Icons bitmaps.
@@ -80,7 +84,7 @@ move to .NET 10 and Avalonia, and adds the on-disk caches described above.
 - 64-bit support: `steamclient64.dll` is loaded when running as a 64-bit process, and the projects build for `AnyCPU` as well as `x86`.
 - **Migrated from .NET Framework 4.8 to .NET 10.** The default `AnyCPU` build now runs as a 64-bit process and talks to the 64-bit Steam client; build the `x86` configuration if you need a 32-bit process.
 - **Migrated from Windows Forms to [Avalonia](https://avaloniaui.net/).** The interop layer is unchanged; only the UI was rewritten.
-- **Two picker view modes.** *Tiles* shows large capsule art with the game name. *Content* shows a row per game with a small icon, the name, release date, when you last played, the Steam review score, earned/total achievements, and your own like/dislike. Sort by any of those from the toolbar or by clicking a column header. This data is read from Steam's local caches, so it is only available for games Steam has already fetched data for; anything else shows `—`.
+- **Two picker view modes.** *Tiles* shows capsule art with a completion meter. *Content* shows a row per game with a small icon, the name, release date, when you last played, the Steam review score, earned/total achievements, and your own like/dislike. Sort by any of those from the toolbar or by clicking a column header. This data is read from Steam's local caches, so it is only available for games Steam has already fetched data for; anything else shows `—`.
 - **Your own like/dislike** is stored by SAM in `~/.sam/ratings.json`, alongside its
   other files. It is *not* your Steam review — Steam does not expose that locally —
   and nothing is ever sent to Steam. If you are upgrading, an existing

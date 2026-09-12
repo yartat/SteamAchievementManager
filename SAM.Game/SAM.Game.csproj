@@ -69,6 +69,7 @@
          both toolbars cannot drift apart. Linked to Resources/ so the avares
          path is the same in both assemblies. -->
     <AvaloniaResource Include="..\Shared\Icons.axaml" Link="Resources\Icons.axaml" />
+    <AvaloniaResource Include="..\Shared\Theme.axaml" Link="Resources\Theme.axaml" />
   </ItemGroup>
   <ItemGroup>
     <!-- Shared with the other application: both processes read the same

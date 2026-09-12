@@ -72,7 +72,30 @@ namespace SAM.Game.ViewModels
 
         private Task _SaveTask = Task.CompletedTask;
 
+        /// <summary>
+        /// What Steam last said, by achievement id, and when. Read once per
+        /// callback so the list can be rebuilt for a filter change without
+        /// asking Steam again.
+        /// </summary>
+        private readonly Dictionary<string, bool> _SteamStates = new();
+        private readonly Dictionary<string, DateTime?> _UnlockTimes = new();
+
+        /// <summary>
+        /// The user's uncommitted changes, by id. These have to live outside
+        /// <see cref="Achievements"/>, which holds only what the filters last
+        /// left on screen: without this, changing a filter silently threw away
+        /// every pending toggle, and Commit only stored the visible ones.
+        /// </summary>
+        private readonly Dictionary<string, bool> _PendingStates = new();
+
         private bool _IsUpdatingAchievementList;
+
+        /// <summary>
+        /// Set while Lock All / Unlock All / Invert walks the list, so the
+        /// summary is recomputed once at the end rather than once per
+        /// achievement - which on a game like Civilization V is 286 times.
+        /// </summary>
+        private bool _IsBulkUpdating;
 
         public ObservableCollection<Stats.AchievementInfo> Achievements { get; } = new();
         public ObservableCollection<Stats.StatInfo> Statistics { get; } = new();
@@ -102,41 +125,124 @@ namespace SAM.Game.ViewModels
             }
         }
 
-        private bool _ShowLockedOnly;
-        public bool ShowLockedOnly
+        private AchievementFilter _Filter = AchievementFilter.All;
+
+        /// <summary>
+        /// Which achievements are listed. One three-state chooser rather than
+        /// the pair of toggles it replaced, which could both be off and both
+        /// be on and meant the same thing either way.
+        /// </summary>
+        public AchievementFilter Filter
         {
-            get => this._ShowLockedOnly;
+            get => this._Filter;
             set
             {
-                if (this.SetProperty(ref this._ShowLockedOnly, value) == false)
+                if (this.SetProperty(ref this._Filter, value) == false)
                 {
                     return;
                 }
-                if (value == true && this._ShowUnlockedOnly == true)
-                {
-                    this._ShowUnlockedOnly = false;
-                    this.OnPropertyChanged(nameof(this.ShowUnlockedOnly));
-                }
+                this.OnPropertyChanged(nameof(this.IsShowingAll));
+                this.OnPropertyChanged(nameof(this.IsShowingLocked));
+                this.OnPropertyChanged(nameof(this.IsShowingUnlocked));
                 this.GetAchievements();
             }
         }
 
-        private bool _ShowUnlockedOnly;
-        public bool ShowUnlockedOnly
+        public bool IsShowingAll => this.Filter == AchievementFilter.All;
+        public bool IsShowingLocked => this.Filter == AchievementFilter.Locked;
+        public bool IsShowingUnlocked => this.Filter == AchievementFilter.Unlocked;
+
+        [RelayCommand]
+        private void ShowFilter(AchievementFilter filter)
         {
-            get => this._ShowUnlockedOnly;
-            set
+            this.Filter = filter;
+        }
+
+        [ObservableProperty]
+        private Stats.AchievementInfo _SelectedAchievement;
+
+        [ObservableProperty]
+        private string _GameName = "";
+
+        /// <summary>Counts over the whole game, not over the filtered list.</summary>
+        public int TotalCount => this._SteamStates.Count;
+
+        public int UnlockedCount
+        {
+            get
             {
-                if (this.SetProperty(ref this._ShowUnlockedOnly, value) == false)
+                var count = 0;
+                foreach (var pair in this._SteamStates)
                 {
-                    return;
+                    if (this.EffectiveState(pair.Key) == true)
+                    {
+                        count++;
+                    }
                 }
-                if (value == true && this._ShowLockedOnly == true)
+                return count;
+            }
+        }
+
+        public int LockedCount => this.TotalCount - this.UnlockedCount;
+
+        public double CompletionFraction =>
+            this.TotalCount == 0 ? 0.0 : this.UnlockedCount / (double)this.TotalCount;
+
+        public string CompletionText =>
+            this.TotalCount == 0
+                ? ""
+                : $"{this.UnlockedCount} / {this.TotalCount} · " +
+                  (this.CompletionFraction * 100.0).ToString("0", CultureInfo.CurrentCulture) + "%";
+
+        public bool HasPendingChanges => this._PendingStates.Count > 0;
+
+        public int PendingUnlockCount
+        {
+            get
+            {
+                var count = 0;
+                foreach (var pair in this._PendingStates)
                 {
-                    this._ShowLockedOnly = false;
-                    this.OnPropertyChanged(nameof(this.ShowLockedOnly));
+                    if (pair.Value == true)
+                    {
+                        count++;
+                    }
                 }
-                this.GetAchievements();
+                return count;
+            }
+        }
+
+        public int PendingLockCount => this._PendingStates.Count - this.PendingUnlockCount;
+
+        public string PendingSummaryText =>
+            $"{this.PendingUnlockCount} to unlock · {this.PendingLockCount} to lock";
+
+        public string CommitText =>
+            this._PendingStates.Count == 1 ? "Commit 1 change" : $"Commit {this._PendingStates.Count} changes";
+
+        /// <summary>What the list should show for an id: the user's override, else Steam's.</summary>
+        private bool EffectiveState(string id)
+        {
+            if (this._PendingStates.TryGetValue(id, out var pending) == true)
+            {
+                return pending;
+            }
+            return this._SteamStates.TryGetValue(id, out var actual) == true && actual == true;
+        }
+
+        private static readonly string[] SummaryNames =
+        {
+            nameof(TotalCount), nameof(UnlockedCount), nameof(LockedCount),
+            nameof(CompletionFraction), nameof(CompletionText), nameof(HasPendingChanges),
+            nameof(PendingUnlockCount), nameof(PendingLockCount), nameof(PendingSummaryText),
+            nameof(CommitText),
+        };
+
+        private void RefreshSummary()
+        {
+            foreach (var name in SummaryNames)
+            {
+                this.OnPropertyChanged(name);
             }
         }
 
@@ -161,8 +267,8 @@ namespace SAM.Game.ViewModels
             this.OpenCache(settings.DatabasePath);
 
             var name = client.SteamApps001.GetAppData((uint)gameId, "name");
-            this.Title = "Steam Achievement Manager 8.0 | " +
-                (name ?? gameId.ToString(CultureInfo.InvariantCulture));
+            this.GameName = name ?? gameId.ToString(CultureInfo.InvariantCulture);
+            this.Title = "Steam Achievement Manager 8.0 | " + this.GameName;
 
             this._UserStatsReceivedCallback = client.CreateAndRegisterCallback<API.Callbacks.UserStatsReceived>();
             this._UserStatsReceivedCallback.OnRun += this.OnUserStatsReceived;
@@ -231,6 +337,8 @@ namespace SAM.Game.ViewModels
                 this.IsInputEnabled = true;
                 return;
             }
+
+            this.RefreshSteamStates();
 
             try
             {
@@ -314,6 +422,7 @@ namespace SAM.Game.ViewModels
                 this.EnqueueIcon(info);
             }
 
+            this.SelectedAchievement = this.Achievements.Count > 0 ? this.Achievements[0] : null;
             this.StatusText = $"Showing {rows.Count} cached achievements. Refreshing...";
         }
 
@@ -392,6 +501,8 @@ namespace SAM.Game.ViewModels
         {
             this.Achievements.Clear();
             this.Statistics.Clear();
+            this._PendingStates.Clear();
+            this.RefreshSummary();
 
             var steamId = this._SteamClient.SteamUser.GetSteamId();
 
@@ -598,6 +709,40 @@ namespace SAM.Game.ViewModels
             return true;
         }
 
+        /// <summary>
+        /// Reads Steam once per callback into <see cref="_SteamStates"/>, so
+        /// rebuilding the list for a filter or search change costs nothing and
+        /// does not depend on Steam still answering.
+        /// </summary>
+        private void RefreshSteamStates()
+        {
+            // Anything toggled while the cached list was on screen was toggled
+            // against state Steam had not confirmed yet, so it is discarded
+            // rather than replayed onto the real values.
+            this._PendingStates.Clear();
+            this._SteamStates.Clear();
+            this._UnlockTimes.Clear();
+
+            foreach (var def in this._AchievementDefinitions)
+            {
+                if (string.IsNullOrEmpty(def.Id) == true)
+                {
+                    continue;
+                }
+                if (this._SteamClient.SteamUserStats.GetAchievementAndUnlockTime(
+                    def.Id,
+                    out bool isAchieved,
+                    out var unlockTime) == false)
+                {
+                    continue;
+                }
+                this._SteamStates[def.Id] = isAchieved;
+                this._UnlockTimes[def.Id] = isAchieved == true && unlockTime > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(unlockTime).LocalDateTime
+                    : null;
+            }
+        }
+
         private void GetAchievements()
         {
             if (this._AchievementDefinitions.Count == 0)
@@ -606,6 +751,7 @@ namespace SAM.Game.ViewModels
             }
 
             var textSearch = this.MatchingString.Length > 0 ? this.MatchingString : null;
+            var selectedId = this.SelectedAchievement?.Id;
 
             this._IsUpdatingAchievementList = true;
 
@@ -615,28 +761,25 @@ namespace SAM.Game.ViewModels
             }
             this.Achievements.Clear();
 
-            var wantLocked = this.ShowLockedOnly;
-            var wantUnlocked = this.ShowUnlockedOnly;
+            Stats.AchievementInfo reselect = null;
 
             foreach (var def in this._AchievementDefinitions)
             {
-                if (string.IsNullOrEmpty(def.Id) == true)
+                if (string.IsNullOrEmpty(def.Id) == true ||
+                    this._SteamStates.TryGetValue(def.Id, out var isAchieved) == false)
                 {
                     continue;
                 }
 
-                if (this._SteamClient.SteamUserStats.GetAchievementAndUnlockTime(
-                    def.Id,
-                    out bool isAchieved,
-                    out var unlockTime) == false)
+                // The filter reads the state on screen, pending edits included,
+                // so an achievement does not vanish from Locked the instant it
+                // is ticked.
+                var effective = this.EffectiveState(def.Id);
+                var wanted = this.Filter switch
                 {
-                    continue;
-                }
-
-                bool wanted = (wantLocked == false && wantUnlocked == false) || isAchieved switch
-                {
-                    true => wantUnlocked,
-                    false => wantLocked,
+                    AchievementFilter.Locked => effective == false,
+                    AchievementFilter.Unlocked => effective == true,
+                    _ => true,
                 };
                 if (wanted == false)
                 {
@@ -652,14 +795,14 @@ namespace SAM.Game.ViewModels
                     }
                 }
 
+                this._UnlockTimes.TryGetValue(def.Id, out var unlockTime);
+
                 Stats.AchievementInfo info = new()
                 {
                     Id = def.Id,
-                    IsAchieved = isAchieved,
+                    IsAchieved = effective,
                     OriginalValue = isAchieved,
-                    UnlockTime = isAchieved == true && unlockTime > 0
-                        ? DateTimeOffset.FromUnixTimeSeconds(unlockTime).LocalDateTime
-                        : null,
+                    UnlockTime = unlockTime,
                     IconNormal = string.IsNullOrEmpty(def.IconNormal) ? null : def.IconNormal,
                     IconLocked = string.IsNullOrEmpty(def.IconLocked) ? def.IconNormal : def.IconLocked,
                     Permission = def.Permission,
@@ -670,9 +813,19 @@ namespace SAM.Game.ViewModels
                 info.PropertyChanged += this.OnAchievementPropertyChanged;
                 this.Achievements.Add(info);
                 this.EnqueueIcon(info);
+
+                if (info.Id == selectedId)
+                {
+                    reselect = info;
+                }
             }
 
             this._IsUpdatingAchievementList = false;
+
+            // The detail pane keeps whatever was open, if it survived the
+            // filter; otherwise it falls back to the top of the list.
+            this.SelectedAchievement = reselect ?? (this.Achievements.Count > 0 ? this.Achievements[0] : null);
+            this.RefreshSummary();
         }
 
         private void OnAchievementPropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -701,6 +854,22 @@ namespace SAM.Game.ViewModels
                 return;
             }
 
+            // Back to what Steam says is not a change, it is the change being
+            // taken back, so the entry goes rather than being kept as a no-op.
+            if (this._SteamStates.TryGetValue(info.Id, out var actual) == true &&
+                actual == info.IsAchieved)
+            {
+                this._PendingStates.Remove(info.Id);
+            }
+            else
+            {
+                this._PendingStates[info.Id] = info.IsAchieved;
+            }
+
+            if (this._IsBulkUpdating == false)
+            {
+                this.RefreshSummary();
+            }
             this.EnqueueIcon(info);
         }
 
@@ -774,30 +943,44 @@ namespace SAM.Game.ViewModels
         [RelayCommand]
         private void InvertAll()
         {
-            foreach (var info in this.Achievements)
+            this._IsBulkUpdating = true;
+            try
             {
-                if (info.IsProtected == true)
+                foreach (var info in this.Achievements)
                 {
-                    continue;
+                    if (info.IsProtected == true)
+                    {
+                        continue;
+                    }
+                    info.IsAchieved = info.IsAchieved == false;
                 }
-                this._IsUpdatingAchievementList = true;
-                info.IsAchieved = info.IsAchieved == false;
-                this._IsUpdatingAchievementList = false;
             }
+            finally
+            {
+                this._IsBulkUpdating = false;
+            }
+            this.RefreshSummary();
         }
 
         private void SetAllAchievements(bool value)
         {
-            foreach (var info in this.Achievements)
+            this._IsBulkUpdating = true;
+            try
             {
-                if (info.IsProtected == true)
+                foreach (var info in this.Achievements)
                 {
-                    continue;
+                    if (info.IsProtected == true)
+                    {
+                        continue;
+                    }
+                    info.IsAchieved = value;
                 }
-                this._IsUpdatingAchievementList = true;
-                info.IsAchieved = value;
-                this._IsUpdatingAchievementList = false;
             }
+            finally
+            {
+                this._IsBulkUpdating = false;
+            }
+            this.RefreshSummary();
         }
 
         [RelayCommand]
@@ -830,33 +1013,42 @@ namespace SAM.Game.ViewModels
             this.RefreshStats();
         }
 
+        /// <summary>
+        /// Stores every pending change, including any currently filtered out of
+        /// the list. Reading them off <see cref="Achievements"/> meant a change
+        /// made before switching filters was silently dropped.
+        /// </summary>
         private int StoreAchievements()
         {
-            if (this.Achievements.Count == 0)
+            if (this._PendingStates.Count == 0)
             {
                 return 0;
             }
 
-            var changed = this.Achievements
-                .Where(a => a.IsAchieved != a.OriginalValue)
-                .ToList();
-            if (changed.Count == 0)
+            foreach (var pair in this._PendingStates.ToList())
             {
-                return 0;
-            }
-
-            foreach (var info in changed)
-            {
-                if (this._SteamClient.SteamUserStats.SetAchievement(info.Id, info.IsAchieved) == false)
+                if (this._SteamClient.SteamUserStats.SetAchievement(pair.Key, pair.Value) == false)
                 {
                     this.MessageRaised?.Invoke(
-                        $"An error occurred while setting the state for {info.Id}, aborting store.",
+                        $"An error occurred while setting the state for {pair.Key}, aborting store.",
                         false);
                     return -1;
                 }
             }
 
-            return changed.Count;
+            return this._PendingStates.Count;
+        }
+
+        /// <summary>Throws away uncommitted changes and redraws from Steam.</summary>
+        [RelayCommand]
+        private void DiscardChanges()
+        {
+            if (this._PendingStates.Count == 0)
+            {
+                return;
+            }
+            this._PendingStates.Clear();
+            this.GetAchievements();
         }
 
         private int StoreStatistics()

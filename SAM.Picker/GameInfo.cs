@@ -59,6 +59,11 @@ namespace SAM.Picker
         [NotifyPropertyChangedFor(nameof(PlaytimeText))]
         [NotifyPropertyChangedFor(nameof(AchievementsText))]
         [NotifyPropertyChangedFor(nameof(LastPlayedText))]
+        [NotifyPropertyChangedFor(nameof(Completion))]
+        [NotifyPropertyChangedFor(nameof(HasCompletion))]
+        [NotifyPropertyChangedFor(nameof(CompletionFraction))]
+        [NotifyPropertyChangedFor(nameof(CompletionText))]
+        [NotifyPropertyChangedFor(nameof(IsPerfect))]
         private GameStats? _Stats;
 
         /// <summary>Steam's community review score as a percentage positive.</summary>
@@ -153,6 +158,39 @@ namespace SAM.Picker
                     : Math.Round(hours).ToString("0", CultureInfo.CurrentCulture) + " h";
             }
         }
+
+        /// <summary>
+        /// How far through this game's achievements the user is, 0..1, or null
+        /// when Steam has never cached a schema for it. The Library grid draws
+        /// a meter from this, and an empty meter has to mean "not known" rather
+        /// than "none earned".
+        /// </summary>
+        public double? Completion
+        {
+            get
+            {
+                if (this.Stats.HasValue == false || this.Stats.Value.AchievementsTotal <= 0)
+                {
+                    return null;
+                }
+                return Math.Clamp(
+                    this.Stats.Value.AchievementsEarned / (double)this.Stats.Value.AchievementsTotal,
+                    0.0,
+                    1.0);
+            }
+        }
+
+        public bool HasCompletion => this.Completion.HasValue;
+
+        /// <summary>Width of the meter's filled part, as a fraction of the track.</summary>
+        public double CompletionFraction => this.Completion ?? 0.0;
+
+        public bool IsPerfect => this.Completion.HasValue == true && this.Completion.Value >= 1.0;
+
+        public string CompletionText =>
+            this.Completion.HasValue == false
+                ? "Not cached yet"
+                : (this.Completion.Value * 100.0).ToString("0", CultureInfo.CurrentCulture) + "%";
 
         public string AchievementsText
         {

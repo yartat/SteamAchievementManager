@@ -60,7 +60,21 @@ namespace SAM.Game.Stats
         public bool OriginalValue { get; set; }
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsChanged))]
+        [NotifyPropertyChangedFor(nameof(StateText))]
         private bool _IsAchieved;
+
+        /// <summary>True while this row differs from what Steam reported.</summary>
+        public bool IsChanged => this.IsAchieved != this.OriginalValue;
+
+        /// <summary>
+        /// What the detail pane says about this one. A pending change reads as
+        /// an intention rather than a fact, because nothing has been sent to
+        /// Steam until Commit.
+        /// </summary>
+        public string StateText => this.IsChanged == true
+            ? (this.IsAchieved == true ? "Will unlock" : "Will lock")
+            : (this.IsAchieved == true ? "Unlocked" : "Locked");
 
         [ObservableProperty]
         private Bitmap _Icon;
